@@ -1,0 +1,67 @@
+name: 'Setup Jira CLI'
+description: 'Download, cache, and add jira-cli to PATH'
+inputs:
+  version:
+    description: 'Jira CLI version (without v prefix) or "latest"'
+    required: false
+    default: 'latest'
+  token:
+    description: 'GitHub PAT with read access to endgame-build/jira-cli releases'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve version
+      id: resolve
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        if [ "$INPUT_VERSION" = "latest" ]; then
+          TAG=$(gh release view --repo endgame-build/jira-cli --json tagName -q .tagName)
+        else
+          TAG="v${INPUT_VERSION#v}"
+        fi
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+    - name: Detect OS and architecture
+      id: detect
+      shell: bash
+      run: |
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        RAW_ARCH=$(uname -m)
+        case "$RAW_ARCH" in
+          x86_64)  ARCH=amd64 ;;
+          aarch64) ARCH=arm64 ;;
+          arm64)   ARCH=arm64 ;;
+          *)       echo "::error::Unsupported architecture: $RAW_ARCH" && exit 1 ;;
+        esac
+        echo "os=$OS" >> "$GITHUB_OUTPUT"
+        echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+
+    - name: Cache jira-cli binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/jira-cli
+        key: jira-cli-${{ steps.detect.outputs.os }}-${{ steps.detect.outputs.arch }}-${{ steps.resolve.outputs.tag }}
+
+    - name: Download jira-cli
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        ASSET="jira_${{ steps.resolve.outputs.tag }}_${{ steps.detect.outputs.os }}_${{ steps.detect.outputs.arch }}.tar.gz"
+        mkdir -p "${{ runner.temp }}/jira-cli"
+        gh release download "${{ steps.resolve.outputs.tag }}" \
+          --repo endgame-build/jira-cli \
+          --pattern "$ASSET" \
+          --dir "${{ runner.temp }}"
+        tar -xzf "${{ runner.temp }}/$ASSET" -C "${{ runner.temp }}/jira-cli"
+        rm "${{ runner.temp }}/$ASSET"
+
+    - name: Add jira-cli to PATH
+      shell: bash
+      run: echo "${{ runner.temp }}/jira-cli" >> "$GITHUB_PATH"
