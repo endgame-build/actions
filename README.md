@@ -1,4 +1,4 @@
-# CLI Tools
+# Actions
 
 Composite GitHub Actions for downloading, caching, and adding CLI tools to `$PATH`.
 
@@ -9,7 +9,7 @@ Composite GitHub Actions for downloading, caching, and adding CLI tools to `$PAT
 Download, cache, and add `jira-cli` to PATH.
 
 ```yaml
-- uses: endgame-build/cli-tools/setup-jira@v1
+- uses: endgame-build/actions/setup-jira@v1
   with:
     token: ${{ secrets.JIRA_CLI_PAT }}
     # version: '1.2.3'  # optional, defaults to latest
