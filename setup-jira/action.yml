@@ -53,7 +53,9 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
       run: |
-        ASSET="jira_${{ steps.resolve.outputs.tag }}_${{ steps.detect.outputs.os }}_${{ steps.detect.outputs.arch }}.tar.gz"
+        VERSION="${{ steps.resolve.outputs.tag }}"
+        VERSION="${VERSION#v}"
+        ASSET="jira_${VERSION}_${{ steps.detect.outputs.os }}_${{ steps.detect.outputs.arch }}.tar.gz"
         mkdir -p "${{ runner.temp }}/jira-cli"
         gh release download "${{ steps.resolve.outputs.tag }}" \
           --repo endgame-build/jira-cli \
