@@ -1,0 +1,130 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install svu
+        env:
+          SVU_VERSION: "3.4.0"
+          SVU_SHA256: "f9fe4f0edb7d8cf4b0ecd84dd8ffa7e36186da6c701ab5fa59cb75a100a1705e"
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/caarlos0/svu/releases/download/v${SVU_VERSION}/svu_${SVU_VERSION}_linux_amd64.tar.gz" -o /tmp/svu.tar.gz
+          echo "${SVU_SHA256}  /tmp/svu.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf /tmp/svu.tar.gz -C "$HOME/.local/bin" svu
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Detect version bump
+        id: version
+        run: |
+          set -euo pipefail
+
+          CURRENT=$(svu current || echo "v0.0.0")
+          NEXT=$(svu next || echo "")
+
+          # Bootstrap: no tags yet
+          if [ "$CURRENT" = "v0.0.0" ] && [ -z "$(git tag -l 'v*')" ]; then
+            NEXT="v1.0.0"
+            echo "Bootstrap: first release $NEXT"
+            echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "svu current=$CURRENT next=$NEXT"
+
+          if [ -z "$NEXT" ]; then
+            echo "::error::svu returned empty next version"
+            exit 1
+          fi
+
+          if [ "$CURRENT" != "$NEXT" ]; then
+            echo "Version bump: $CURRENT → $NEXT"
+          else
+            COMMITS_SINCE=$(git log "${CURRENT}..HEAD" --format=%s --no-merges)
+            if [ -z "$COMMITS_SINCE" ]; then
+              echo "::notice::No commits since $CURRENT, skipping release"
+              exit 0
+            fi
+
+            PATCH_TYPES="^(refactor|docs|chore|test|ci|build)(\(.+\))?:"
+            QUALIFYING=$(echo "$COMMITS_SINCE" | grep -cE "$PATCH_TYPES") || {
+              rc=$?
+              if [ "$rc" -eq 1 ]; then QUALIFYING=0; else echo "::error::grep failed (exit $rc)"; exit 1; fi
+            }
+
+            if [ "$QUALIFYING" -gt 0 ]; then
+              CURRENT_BARE="${CURRENT#v}"
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_BARE"
+              NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+              echo "Patch bump (non-feat/fix): $CURRENT → $NEXT"
+            else
+              echo "::notice::No version bump detected ($CURRENT)"
+              exit 0
+            fi
+          fi
+
+          if ! [[ "$NEXT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version '$NEXT' does not match semver pattern"
+            exit 1
+          fi
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag and release
+        if: steps.version.outputs.next
+        env:
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          CURRENT_SHA="$(git rev-parse HEAD)"
+          EXISTING_TAG_SHA="$(git rev-parse -q --verify "refs/tags/$NEXT_VERSION^{commit}" 2>/dev/null || true)"
+
+          if [ -n "$EXISTING_TAG_SHA" ]; then
+            if [ "$EXISTING_TAG_SHA" != "$CURRENT_SHA" ]; then
+              echo "::error::Tag $NEXT_VERSION already exists at different commit"
+              exit 1
+            fi
+            echo "::warning::Tag $NEXT_VERSION already exists at HEAD"
+          else
+            git tag "$NEXT_VERSION"
+            git push origin "$NEXT_VERSION"
+          fi
+
+          # Create GitHub release with auto-generated notes
+          gh release create "$NEXT_VERSION" \
+            --title "$NEXT_VERSION" \
+            --generate-notes \
+            --latest
+
+          echo "## Released $NEXT_VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update major version tag
+        if: steps.version.outputs.next
+        env:
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          set -euo pipefail
+          MAJOR="v$(echo "$NEXT_VERSION" | sed 's/^v//' | cut -d. -f1)"
+          git tag -f "$MAJOR"
+          git push origin "$MAJOR" --force
+          echo "Updated \`$MAJOR\` → \`$NEXT_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
