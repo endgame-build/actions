@@ -1,0 +1,247 @@
+name: Changelog Update
+
+on:
+  workflow_call:
+    inputs:
+      pr-number:
+        description: "PR number that triggered this"
+        required: true
+        type: number
+      pr-title:
+        description: "PR title"
+        required: true
+        type: string
+      pr-author:
+        description: "PR author to assign the changelog PR"
+        required: true
+        type: string
+      slack-channel-id:
+        description: "Slack channel ID for per-merge notifications (empty to skip)"
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: changelog-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  JSON_SCHEMA: '{"type":"object","properties":{"entry":{"type":"string","description":"A keepachangelog entry or empty string"}},"required":["entry"]}'
+  ACTIONS_REPO: endgame-build/actions
+
+jobs:
+  generate-entry:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bootstrap and run git-cliff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ ! -f CHANGELOG.md ] && gh api "repos/${{ env.ACTIONS_REPO }}/contents/templates/CHANGELOG.md" \
+            -H "Accept: application/vnd.github.raw" > CHANGELOG.md
+          gh api "repos/${{ env.ACTIONS_REPO }}/contents/cliff.toml" \
+            --jq '.content' | base64 -d > cliff.toml
+
+      - uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --unreleased --prepend CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Collect context
+        id: ctx
+        env:
+          PR_NUMBER: ${{ inputs.pr-number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet CHANGELOG.md 2>/dev/null; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          gh api "repos/${{ env.ACTIONS_REPO }}/contents/scripts/collect-context.sh" \
+            -H "Accept: application/vnd.github.raw" | bash
+
+      # ── 3 agents + synthesis ────────────────────────────────────
+      - name: Agent 1 — analyze PR diff
+        if: steps.ctx.outputs.changed == 'true'
+        id: agent1
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            You are a changelog analyst. What changed from the user's perspective?
+            PR title: ${{ inputs.pr-title }}
+            PR diff: ${{ steps.ctx.outputs.diff }}
+            One changelog line, max 15 words, strong verb, user value. No tools.
+          claude_args: "--max-turns 3 --json-schema '${{ env.JSON_SCHEMA }}'"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+      - name: Agent 2 — analyze PR description
+        if: steps.ctx.outputs.changed == 'true'
+        id: agent2
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            You are a changelog analyst. What is the most meaningful change?
+            PR title: ${{ inputs.pr-title }}
+            Description: ${{ steps.ctx.outputs.desc }}
+            Commits: ${{ steps.ctx.outputs.commits }}
+            One changelog line, max 15 words, strong verb, user value. No tools.
+          claude_args: "--max-turns 3 --json-schema '${{ env.JSON_SCHEMA }}'"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+      - name: Agent 3 — review cliff output
+        if: steps.ctx.outputs.changed == 'true'
+        id: agent3
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            You are a changelog editor. Improve this git-cliff output.
+            ${{ steps.ctx.outputs.cliff }}
+            Remove duplicates and noise. Merge related entries. Max 15 words each.
+            Categories: Added, Changed, Deprecated, Removed, Fixed, Security. No tools.
+          claude_args: "--max-turns 3 --json-schema '${{ env.JSON_SCHEMA }}'"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+      - name: Synthesis
+        if: steps.ctx.outputs.changed == 'true'
+        id: synthesis
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            Synthesize three perspectives into one final changelog entry.
+            Agent 1: ${{ steps.agent1.outputs.structured_output }}
+            Agent 2: ${{ steps.agent2.outputs.structured_output }}
+            Agent 3: ${{ steps.agent3.outputs.structured_output }}
+            Format: ### Added/Changed/Fixed/etc. Max 15 words. Active voice.
+            PR link: ([#${{ inputs.pr-number }}](https://github.com/${{ github.repository }}/pull/${{ inputs.pr-number }}))
+            One line if single change. No tools.
+          claude_args: "--max-turns 3 --json-schema '${{ env.JSON_SCHEMA }}'"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+      # ── Create PR ───────────────────────────────────────────────
+      - uses: actions/checkout@v4
+        if: steps.ctx.outputs.changed == 'true'
+        with:
+          fetch-depth: 1
+          token: ${{ github.token }}
+
+      - name: Create changelog PR
+        if: steps.ctx.outputs.changed == 'true'
+        env:
+          SYNTHESIS_JSON: ${{ steps.synthesis.outputs.structured_output }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          PR_TITLE: ${{ inputs.pr-title }}
+          PR_AUTHOR: ${{ inputs.pr-author }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ENTRY=$(echo "$SYNTHESIS_JSON" | jq -r '.entry // empty')
+          [ -z "$ENTRY" ] && echo "No content — skipping." && exit 0
+
+          [ ! -f CHANGELOG.md ] && gh api "repos/${{ env.ACTIONS_REPO }}/contents/templates/CHANGELOG.md" \
+            -H "Accept: application/vnd.github.raw" > CHANGELOG.md
+          grep -q '## \[Unreleased\]' CHANGELOG.md || \
+            { head -1 CHANGELOG.md; echo -e "\n## [Unreleased]\n"; tail -n +2 CHANGELOG.md; } > /tmp/cl.md && mv /tmp/cl.md CHANGELOG.md
+
+          awk -v entry="$ENTRY" '/^## \[Unreleased\]/ { print; print ""; print entry; next } { print }' \
+            CHANGELOG.md > /tmp/cl.md && mv /tmp/cl.md CHANGELOG.md
+
+          branch="changelog/pr-${PR_NUMBER}"
+          git push origin --delete "$branch" 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): update for PR #${PR_NUMBER} [skip ci]"
+          git push -u origin "$branch"
+          gh pr create --title "docs(changelog): update for #${PR_NUMBER}" \
+            --body "Changelog update from PR #${PR_NUMBER}: ${PR_TITLE}" \
+            --assignee "${PR_AUTHOR}" --label "changelog"
+
+      - name: Post to Slack
+        if: steps.ctx.outputs.changed == 'true' && inputs.slack-channel-id != ''
+        continue-on-error: true
+        env:
+          SYNTHESIS_JSON: ${{ steps.synthesis.outputs.structured_output }}
+          SLACK_CHANNEL: ${{ inputs.slack-channel-id }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+        run: |
+          ENTRY=$(echo "$SYNTHESIS_JSON" | jq -r '.entry // empty')
+          [ -z "$ENTRY" ] && exit 0
+          jq -n --arg channel "$SLACK_CHANNEL" \
+            --arg text "*${REPO}* — <https://github.com/${REPO}/pull/${PR_NUMBER}|#${PR_NUMBER}>
+          ${ENTRY}" '{ channel: $channel, text: $text }' > /tmp/slack.json
+
+      - name: Send Slack message
+        if: steps.ctx.outputs.changed == 'true' && inputs.slack-channel-id != ''
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload-file-path: /tmp/slack.json
+
+  # ── Fallback ────────────────────────────────────────────────────
+  fallback:
+    needs: [generate-entry]
+    if: always() && needs.generate-entry.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Run git-cliff fallback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          PR_TITLE: ${{ inputs.pr-title }}
+          PR_AUTHOR: ${{ inputs.pr-author }}
+        run: |
+          [ ! -f CHANGELOG.md ] && gh api "repos/${{ env.ACTIONS_REPO }}/contents/templates/CHANGELOG.md" \
+            -H "Accept: application/vnd.github.raw" > CHANGELOG.md
+          gh api "repos/${{ env.ACTIONS_REPO }}/contents/cliff.toml" \
+            --jq '.content' | base64 -d > cliff.toml
+
+      - uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --unreleased --prepend CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Create fallback PR
+        env:
+          PR_NUMBER: ${{ inputs.pr-number }}
+          PR_TITLE: ${{ inputs.pr-title }}
+          PR_AUTHOR: ${{ inputs.pr-author }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git diff --quiet CHANGELOG.md 2>/dev/null && echo "No changes" && exit 0
+          branch="changelog/pr-${PR_NUMBER}"
+          git push origin --delete "$branch" 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): update for PR #${PR_NUMBER} [skip ci]"
+          git push -u origin "$branch"
+          gh pr create --title "docs(changelog): update for #${PR_NUMBER}" \
+            --body "Changelog from PR #${PR_NUMBER}: ${PR_TITLE}. AI unavailable — raw git-cliff." \
+            --assignee "${PR_AUTHOR}" --label "changelog"

@@ -16,7 +16,8 @@ Each action lives in its own directory with an `action.yml` (composite action fo
 
 ## Conventions
 
-- **Composite actions only** — `runs.using: 'composite'`, no JavaScript/Docker actions.
+- **Composite actions** — `runs.using: 'composite'`, no JavaScript/Docker actions. Each action in its own top-level directory.
+- **Reusable workflows** — `workflow_call` triggered workflows under `.github/workflows/`. Used for cross-repo automation (changelog, notifications).
 - **Caching pattern**: resolve version → detect OS/arch → check `actions/cache@v4` → download on miss → add to `$GITHUB_PATH`.
 - **Asset naming**: `<tool>_<tag>_<os>_<arch>.tar.gz` (e.g., `jira_v1.2.3_linux_amd64.tar.gz`).
 - **Version input**: accepts `"latest"` (default) or a semver string without `v` prefix. The action normalizes to `v`-prefixed tag internally.
@@ -27,6 +28,27 @@ Each action lives in its own directory with an `action.yml` (composite action fo
 ## Adding a New Action
 
 Create `setup-<tool>/action.yml` following the same pattern as `setup-jira/action.yml`. Update `README.md` with usage and inputs table.
+
+## Changelog Pipeline
+
+The AI-powered changelog pipeline runs on every PR merge in adopting repos. Detailed setup in [README.md](README.md).
+
+### Secrets and Variables
+
+Each secret and variable has its own doc with reasoning, creation instructions, and troubleshooting.
+
+**Secrets** (sensitive — stored encrypted):
+- [`CLAUDE_CODE_OAUTH_TOKEN`](docs/secrets/CLAUDE_CODE_OAUTH_TOKEN.md) — Claude AI agents authentication
+- [`SLACK_BOT_TOKEN`](docs/secrets/SLACK_BOT_TOKEN.md) — Slack message posting
+- [`CROSS_REPO_READ_TOKEN`](docs/secrets/CROSS_REPO_READ_TOKEN.md) — weekly digest cross-repo access
+
+**Variables** (configuration — not sensitive):
+- [`SLACK_TEAM_CHANNEL_ID`](docs/variables/SLACK_TEAM_CHANNEL_ID.md) — per-merge notification target
+- [`SLACK_PUBLIC_CHANNEL_ID`](docs/variables/SLACK_PUBLIC_CHANNEL_ID.md) — weekly digest target
+
+### Onboarding a new repo
+
+From any repo with the atelier plugin installed, run `/setup-changelog` to verify prerequisites and set up the pipeline.
 
 ## No Build/Test/Lint
 

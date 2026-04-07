@@ -1,0 +1,43 @@
+# AI-Powered Changelog on PR Merge
+#
+# Copy this file to your repo as .github/workflows/on-merge.yml
+#
+# Required org-level secrets:
+#   CLAUDE_CODE_OAUTH_TOKEN — from `claude setup-token`
+#   SLACK_BOT_TOKEN — xoxb- token with chat:write scope (optional, for notifications)
+#
+# Optional repo variables:
+#   SLACK_TEAM_CHANNEL_ID — Slack channel ID for per-merge notifications
+#
+# On PR merge:
+# 1. git-cliff generates a raw changelog entry
+# 2. 3 Claude agents analyze the PR diff, description, and commits
+# 3. A synthesis agent produces one clean entry
+# 4. The polished entry is posted to the team Slack channel
+# 5. A changelog PR is created, assigned to the original author
+# 6. Author reviews and merges — only then is the change documented
+
+name: On Merge
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  changelog:
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
+    uses: endgame-build/actions/.github/workflows/changelog-update.yml@main
+    with:
+      pr-number: ${{ github.event.pull_request.number || 0 }}
+      pr-title: ${{ github.event.pull_request.title || 'Manual trigger' }}
+      pr-author: ${{ github.event.pull_request.user.login || github.actor }}
+      slack-channel-id: ${{ vars.SLACK_TEAM_CHANNEL_ID || '' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    secrets: inherit
