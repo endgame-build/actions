@@ -15,8 +15,8 @@ body = """
     ### {{ group | upper_first }}
     {% for commit in commits %}
         - {{ commit.message | split(pat="\n") | first | upper_first }}\
-          {% if commit.github.pr_number %} \
-            ([#{{ commit.github.pr_number }}]({{ commit.github.pr_url }}))\
+          {% if commit.remote.pr_number %} \
+            ([#{{ commit.remote.pr_number }}]({{ commit.remote.pr_url }}))\
           {% endif %}
     {% endfor %}
 {% endfor %}\n
