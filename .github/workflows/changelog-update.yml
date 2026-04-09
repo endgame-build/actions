@@ -70,7 +70,8 @@ jobs:
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
           gh api "repos/${{ env.ACTIONS_REPO }}/contents/scripts/collect-context.sh" \
-            -H "Accept: application/vnd.github.raw" | bash
+            -H "Accept: application/vnd.github.raw" > /tmp/collect-context.sh
+          bash /tmp/collect-context.sh
 
       # ── 3 agents + synthesis ────────────────────────────────────
       - name: Agent 1 — analyze PR diff
