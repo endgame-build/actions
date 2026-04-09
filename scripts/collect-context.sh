@@ -3,15 +3,16 @@
 # Requires: PR_NUMBER, GH_TOKEN, GITHUB_OUTPUT env vars.
 # Sets 'changed' output to 'true'/'false' based on CHANGELOG.md diff.
 #
-# Outputs are capped at 50KB each to stay within GitHub Actions'
-# 1MB step output limit. If content exceeds the cap, a warning is
-# printed and the output is truncated — never silently.
+# GitHub Actions limit: 1MB total per job for all step outputs combined.
+# (Source: https://docs.github.com/en/actions/reference/limits)
+# With 4 output fields, each field is capped at 200KB to stay under 1MB.
+# If content exceeds the cap, a warning is printed — never silent.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-MAX_CHARS=50000
+MAX_CHARS=200000  # 200KB per field × 4 fields = 800KB < 1MB job limit
 
 if git diff --quiet CHANGELOG.md 2>/dev/null; then
   echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -31,6 +32,6 @@ output() {
 
 output "cliff" "$(git diff CHANGELOG.md 2>/dev/null || true)"
 output "desc" "$(retry 3 gh pr view "$PR_NUMBER" --json body --jq '.body // ""' 2>/dev/null || true)"
-output "diff" "$(git diff --stat HEAD~1 HEAD 2>/dev/null | tail -50 || true)
-$(git diff --name-only HEAD~1 HEAD 2>/dev/null | head -100 || true)"
+output "diff" "$(git diff --stat HEAD~1 HEAD 2>/dev/null || true)
+$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)"
 output "commits" "$(retry 3 gh pr view "$PR_NUMBER" --json commits --jq '[.commits[].messageHeadline] | join("; ")' 2>/dev/null || true)"
