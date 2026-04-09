@@ -11,56 +11,35 @@ jobs:
     env:
       REPOS: "endgame-build/atelier endgame-build/jira-cli endgame-build/toc-flow"
     steps:
-      - name: Collect changelogs from repos
+      - name: Collect changelogs
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_READ_TOKEN }}
         run: |
-          digest=""
-          for repo in $REPOS; do
-            repo_short="${repo#endgame-build/}"
-
-            content=$(gh api "repos/${repo}/contents/CHANGELOG.md" \
-              --jq '.content' 2>/dev/null | base64 -d 2>/dev/null) || {
-              digest="${digest}*${repo_short}*: _Could not retrieve changelog_\n"
-              continue
-            }
-
-            unreleased=$(echo "$content" | sed -n '/^## \[Unreleased\]/,/^## \[/{ /^## \[Unreleased\]/d; /^## \[/d; p; }')
-
-            if [ -z "$(echo "$unreleased" | tr -d '[:space:]')" ]; then
-              continue
-            fi
-
-            digest="${digest}*${repo_short}*\n${unreleased}\n\n"
-          done
-
+          gh api repos/endgame-build/actions/contents/scripts/collect-digest.sh \
+            -H "Accept: application/vnd.github.raw" > /tmp/collect-digest.sh
+          digest=$(bash /tmp/collect-digest.sh)
           if [ -z "$digest" ]; then
             echo "DIGEST_EMPTY=true" >> "$GITHUB_ENV"
           else
-            printf '%b' "$digest" > /tmp/digest.txt
+            echo "$digest" > /tmp/digest.txt
             echo "DIGEST_EMPTY=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Build and post Slack digest
+      - name: Build Slack payload
         if: env.DIGEST_EMPTY == 'false'
         env:
           SLACK_CHANNEL: ${{ vars.SLACK_PUBLIC_CHANNEL_ID }}
         run: |
-          if [ -z "$SLACK_CHANNEL" ]; then
-            echo "SLACK_PUBLIC_CHANNEL_ID variable not set, skipping digest post"
-            exit 0
-          fi
-
-          digest=$(cat /tmp/digest.txt)
-          jq -n \
-            --arg channel "$SLACK_CHANNEL" \
+          [ -z "$SLACK_CHANNEL" ] && echo "No channel ID — skipping." && exit 0
+          jq -n --arg channel "$SLACK_CHANNEL" \
             --arg text "*Weekly Changelog Digest*
 
-          $digest" \
+          $(cat /tmp/digest.txt)" \
             '{ channel: $channel, text: $text }' > /tmp/digest-payload.json
 
       - name: Post to Slack
         if: env.DIGEST_EMPTY == 'false'
+        continue-on-error: true
         uses: slackapi/slack-github-action@v2.1.0
         with:
           method: chat.postMessage
