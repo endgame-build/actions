@@ -1,0 +1,33 @@
+name: Weekly Changelog Digest
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"  # Monday 9:00 UTC
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    env:
+      REPOS: "endgame-build/atelier endgame-build/jira-cli endgame-build/toc-flow"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Collect changelogs
+        id: collect
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_READ_TOKEN }}
+        run: bash scripts/collect-digest.sh
+
+      - name: Post to Slack
+        if: steps.collect.outputs.empty == 'false'
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ vars.SLACK_PUBLIC_CHANNEL_ID }}
+            text: "*Weekly Changelog Digest*\n\n${{ steps.collect.outputs.digest }}"

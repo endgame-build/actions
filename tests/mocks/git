@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Mock git for testing collect-context.sh
+case "$*" in
+  *"diff --quiet"*)
+    exit 1  # simulate: changelog has changes
+    ;;
+  "diff CHANGELOG.md")
+    echo "+### Added"
+    echo "+- Add user authentication"
+    ;;
+  "diff --stat HEAD~1 HEAD")
+    echo " src/auth.ts | 50 ++"
+    echo " src/login.ts | 30 ++"
+    echo " 2 files changed, 80 insertions(+)"
+    ;;
+  "diff --name-only HEAD~1 HEAD")
+    echo "src/auth.ts"
+    echo "src/login.ts"
+    ;;
+  *)
+    echo "mock-git: unhandled args: $*" >&2
+    ;;
+esac
