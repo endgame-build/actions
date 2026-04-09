@@ -8,11 +8,11 @@ digest=""
 for repo in $REPOS; do
   repo_short="${repo#endgame-build/}"
 
-  content=$(gh api "repos/${repo}/contents/CHANGELOG.md" \
-    --jq '.content' 2>/dev/null | base64 -d 2>/dev/null) || {
+  raw=$(gh api "repos/${repo}/contents/CHANGELOG.md" --jq '.content' 2>/dev/null) || {
     digest="${digest}*${repo_short}*: _Could not retrieve changelog_\n"
     continue
   }
+  content=$(echo "$raw" | base64 -d 2>/dev/null)
 
   unreleased=$(echo "$content" | sed -n '/^## \[Unreleased\]/,/^## \[/{ /^## \[Unreleased\]/d; /^## \[/d; p; }')
 
