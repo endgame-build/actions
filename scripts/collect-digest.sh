@@ -5,11 +5,14 @@
 # Otherwise prints digest to stdout.
 set -eu
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
+
 digest=""
 for repo in $REPOS; do
   repo_short="${repo#endgame-build/}"
 
-  raw=$(gh api "repos/${repo}/contents/CHANGELOG.md" --jq '.content' 2>/dev/null) || {
+  raw=$(retry 3 gh api "repos/${repo}/contents/CHANGELOG.md" --jq '.content' 2>/dev/null) || {
     digest="${digest}*${repo_short}*: _Could not retrieve changelog_\n"
     continue
   }
