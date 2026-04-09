@@ -3,9 +3,9 @@
 # Requires: PR_NUMBER, GH_TOKEN, GITHUB_OUTPUT env vars.
 # Sets 'changed' output to 'true'/'false' based on CHANGELOG.md diff.
 #
-# Note: outputs are capped at ~50KB each to stay within GitHub Actions'
-# 1MB step output limit (4 outputs × ~50KB = ~200KB, well under 1MB).
-# This is not silent truncation — it's infrastructure protection.
+# Outputs are capped at 50KB each to stay within GitHub Actions'
+# 1MB step output limit. If content exceeds the cap, a warning is
+# printed and the output is truncated — never silently.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,11 +20,17 @@ fi
 echo "changed=true" >> "$GITHUB_OUTPUT"
 
 output() {
-  { echo "$1<<EOF_$1"; echo "$2"; echo "EOF_$1"; } >> "$GITHUB_OUTPUT"
+  local name="$1" content="$2"
+  local length=${#content}
+  if [ "$length" -gt "$MAX_CHARS" ]; then
+    echo "WARNING: $name output truncated from ${length} to ${MAX_CHARS} chars" >&2
+    content="${content:0:$MAX_CHARS}"
+  fi
+  { echo "$name<<EOF_$name"; echo "$content"; echo "EOF_$name"; } >> "$GITHUB_OUTPUT"
 }
 
-output "cliff" "$(git diff CHANGELOG.md 2>/dev/null | head -c $MAX_CHARS || true)"
-output "desc" "$(retry 3 gh pr view "$PR_NUMBER" --json body --jq '.body // ""' 2>/dev/null | head -c $MAX_CHARS || true)"
+output "cliff" "$(git diff CHANGELOG.md 2>/dev/null || true)"
+output "desc" "$(retry 3 gh pr view "$PR_NUMBER" --json body --jq '.body // ""' 2>/dev/null || true)"
 output "diff" "$(git diff --stat HEAD~1 HEAD 2>/dev/null | tail -50 || true)
 $(git diff --name-only HEAD~1 HEAD 2>/dev/null | head -100 || true)"
-output "commits" "$(retry 3 gh pr view "$PR_NUMBER" --json commits --jq '[.commits[].messageHeadline] | join("; ")' 2>/dev/null | head -c $MAX_CHARS || true)"
+output "commits" "$(retry 3 gh pr view "$PR_NUMBER" --json commits --jq '[.commits[].messageHeadline] | join("; ")' 2>/dev/null || true)"

@@ -70,4 +70,35 @@ assert_eq "diff delimiter count" "2" "$(grep -c "EOF_diff" <<< "$OUT")"
 assert_eq "commits delimiter count" "2" "$(grep -c "EOF_commits" <<< "$OUT")"
 rm -f "$GITHUB_OUTPUT"
 
+echo "-- Edge case: 2MB diff triggers truncation warning --"
+MOCK_DIR=$(mktemp -d)
+cat > "$MOCK_DIR/git" << 'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"diff --quiet"*) exit 1 ;;
+  "diff CHANGELOG.md")
+    # Generate 2MB of output
+    python3 -c "print('+ added line ' * 100000)" 2>/dev/null || \
+    perl -e 'print "+ added line \n" x 100000' 2>/dev/null || \
+    yes "+ added line" | head -100000
+    ;;
+  *"diff --stat"*) echo "big.txt | 100000 ++" ;;
+  *"diff --name-only"*) echo "big.txt" ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$MOCK_DIR/git"
+export GITHUB_OUTPUT=$(mktemp)
+STDERR=$(PATH="$MOCK_DIR:$SCRIPT_DIR/mocks:$PATH" bash "$REPO_DIR/scripts/collect-context.sh" 2>&1 >/dev/null)
+assert_contains "warns about truncation" "WARNING" "$STDERR"
+assert_contains "warning names the field" "cliff" "$STDERR"
+OUT=$(cat "$GITHUB_OUTPUT")
+# Verify output exists but is capped
+assert_contains "truncated output still has heredoc" "cliff<<EOF_cliff" "$OUT"
+CLIFF_SIZE=$(sed -n '/^cliff<<EOF_cliff$/,/^EOF_cliff$/p' "$GITHUB_OUTPUT" | wc -c)
+# Should be around 50KB, not 2MB
+assert_eq "output is capped (under 60KB)" "true" "$([ "$CLIFF_SIZE" -lt 60000 ] && echo true || echo false)"
+rm -f "$GITHUB_OUTPUT" "$MOCK_DIR/git"
+rmdir "$MOCK_DIR"
+
 report
