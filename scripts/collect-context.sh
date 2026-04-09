@@ -2,7 +2,7 @@
 # Collect PR context as GitHub Actions step outputs.
 # Usage: source this script in a workflow run step.
 # Requires: PR_NUMBER env var, GH_TOKEN env var, GITHUB_OUTPUT env var.
-set -euo pipefail
+set -eu
 
 output() { # name, content
   { echo "$1<<EOF_$1"; echo "$2"; echo "EOF_$1"; } >> "$GITHUB_OUTPUT"
