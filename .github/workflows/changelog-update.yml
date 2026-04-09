@@ -50,14 +50,12 @@ jobs:
             scripts
             cliff.toml
 
-      - name: Bootstrap and run git-cliff
-        run: |
-          [ ! -f CHANGELOG.md ] && cp .actions/templates/CHANGELOG.md CHANGELOG.md
-          cp .actions/cliff.toml cliff.toml
+      - name: Bootstrap CHANGELOG.md
+        run: '[ ! -f CHANGELOG.md ] && cp .actions/templates/CHANGELOG.md CHANGELOG.md || true'
 
       - uses: orhun/git-cliff-action@v4
         with:
-          config: cliff.toml
+          config: .actions/cliff.toml
           args: --unreleased --prepend CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -223,14 +221,12 @@ jobs:
             templates
             cliff.toml
 
-      - name: Bootstrap for git-cliff
-        run: |
-          [ ! -f CHANGELOG.md ] && cp .actions/templates/CHANGELOG.md CHANGELOG.md
-          cp .actions/cliff.toml cliff.toml
+      - name: Bootstrap CHANGELOG.md
+        run: '[ ! -f CHANGELOG.md ] && cp .actions/templates/CHANGELOG.md CHANGELOG.md || true'
 
       - uses: orhun/git-cliff-action@v4
         with:
-          config: cliff.toml
+          config: .actions/cliff.toml
           args: --unreleased --prepend CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ github.token }}
