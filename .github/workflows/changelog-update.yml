@@ -150,10 +150,7 @@ jobs:
           PR_TITLE: ${{ inputs.pr-title }}
           PR_AUTHOR: ${{ inputs.pr-author }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          ENTRY=$(echo "$SYNTHESIS_JSON" | jq -r '.entry // empty')
-          export ENTRY
-          bash .actions/scripts/create-changelog-pr.sh
+        run: bash .actions/scripts/create-changelog-pr.sh
 
       - name: Post to Slack
         if: steps.ctx.outputs.changed == 'true' && inputs.slack-channel-id != ''

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Create a changelog PR with the synthesized entry.
-# Requires: ENTRY, PR_NUMBER, PR_TITLE, PR_AUTHOR, GH_TOKEN env vars.
+# Requires: SYNTHESIS_JSON, PR_NUMBER, PR_TITLE, PR_AUTHOR, GH_TOKEN env vars.
 # Also requires: .actions/templates/CHANGELOG.md available for bootstrap.
 set -eu
 
+ENTRY=$(echo "$SYNTHESIS_JSON" | jq -r '.entry // empty')
 [ -z "$ENTRY" ] && echo "No content — skipping." && exit 0
 
 # Ensure CHANGELOG.md exists with [Unreleased] section

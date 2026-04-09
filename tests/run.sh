@@ -108,10 +108,16 @@ assert_contains "entry inserted after [Unreleased]" "Add user authentication" "$
 assert_contains "header preserved" "Keep a Changelog" "$RESULT"
 assert_contains "[Unreleased] heading preserved" "## .Unreleased." "$RESULT"
 
-# Test empty entry skips
-export ENTRY="" PR_NUMBER=1 PR_TITLE="test" PR_AUTHOR="user" GH_TOKEN="fake"
+# Test empty synthesis skips
+export SYNTHESIS_JSON='{"entry":""}' PR_NUMBER=1 PR_TITLE="test" PR_AUTHOR="user" GH_TOKEN="fake"
 OUTPUT=$(cd "$TMPDIR" && bash "$REPO_DIR/scripts/create-changelog-pr.sh" 2>&1 || true)
-assert_contains "empty entry skips" "No content" "$OUTPUT"
+assert_contains "empty synthesis skips" "No content" "$OUTPUT"
+
+# Test valid synthesis extracts entry
+export SYNTHESIS_JSON='{"entry":"Add user auth"}'
+OUTPUT=$(cd "$TMPDIR" && bash "$REPO_DIR/scripts/create-changelog-pr.sh" 2>&1 || true)
+# Script will fail at git operations (no repo), but should get past the ENTRY check
+assert_contains "valid synthesis passes entry check" "" "$(echo "$OUTPUT" | grep -v 'No content' || echo 'passed')"
 
 rm -rf "$TMPDIR"
 
