@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Mock git for testing collect-context.sh
 case "$*" in
+  *"diff --quiet"*)
+    exit 1  # simulate: changelog has changes
+    ;;
   "diff CHANGELOG.md")
     echo "+### Added"
     echo "+- Add user authentication"

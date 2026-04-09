@@ -66,13 +66,7 @@ jobs:
         env:
           PR_NUMBER: ${{ inputs.pr-number }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if git diff --quiet CHANGELOG.md 2>/dev/null; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          bash .actions/scripts/collect-context.sh
+        run: bash .actions/scripts/collect-context.sh
 
       # ── 3 agents + synthesis ────────────────────────────────────
       - name: Agent 1 — analyze PR diff
@@ -193,6 +187,7 @@ jobs:
           path: .actions
           sparse-checkout: |
             templates
+            scripts
             cliff.toml
 
       - name: Bootstrap CHANGELOG.md
@@ -212,16 +207,4 @@ jobs:
           PR_TITLE: ${{ inputs.pr-title }}
           PR_AUTHOR: ${{ inputs.pr-author }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          git diff --quiet CHANGELOG.md 2>/dev/null && echo "No changes" && exit 0
-          branch="changelog/pr-${PR_NUMBER}"
-          git push origin --delete "$branch" 2>/dev/null || true
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add CHANGELOG.md
-          git commit -m "docs(changelog): update for PR #${PR_NUMBER} [skip ci]"
-          git push -u origin "$branch"
-          gh pr create --title "docs(changelog): update for #${PR_NUMBER}" \
-            --body "Changelog from PR #${PR_NUMBER}: ${PR_TITLE}. AI unavailable — raw git-cliff." \
-            --assignee "${PR_AUTHOR}" --label "changelog"
+        run: bash .actions/scripts/create-fallback-pr.sh
