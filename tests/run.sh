@@ -82,6 +82,28 @@ DIGEST=$(bash "$REPO_DIR/scripts/collect-digest.sh" 2>/dev/null)
 assert_contains "failed repos show error message" "Could not retrieve" "$DIGEST"
 
 echo ""
+echo "=== create-changelog-pr.sh (CHANGELOG manipulation only) ==="
+# Test the awk insertion logic directly (same logic the script uses)
+TMPDIR=$(mktemp -d)
+cp "$REPO_DIR/templates/CHANGELOG.md" "$TMPDIR/CHANGELOG.md"
+
+ENTRY="- Add user authentication ([#1](url))"
+awk -v entry="$ENTRY" '/^## \[Unreleased\]/ { print; print ""; print entry; next } { print }' \
+  "$TMPDIR/CHANGELOG.md" > "$TMPDIR/cl.md"
+
+RESULT=$(cat "$TMPDIR/cl.md")
+assert_contains "entry inserted after [Unreleased]" "Add user authentication" "$RESULT"
+assert_contains "header preserved" "Keep a Changelog" "$RESULT"
+assert_contains "[Unreleased] heading preserved" "## .Unreleased." "$RESULT"
+
+# Test empty entry skips
+export ENTRY="" PR_NUMBER=1 PR_TITLE="test" PR_AUTHOR="user" GH_TOKEN="fake"
+OUTPUT=$(cd "$TMPDIR" && bash "$REPO_DIR/scripts/create-changelog-pr.sh" 2>&1 || true)
+assert_contains "empty entry skips" "No content" "$OUTPUT"
+
+rm -rf "$TMPDIR"
+
+echo ""
 echo "=== Results ==="
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1
