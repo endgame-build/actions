@@ -50,6 +50,10 @@ Each secret and variable has its own doc with reasoning, creation instructions, 
 
 From any repo with the atelier plugin installed, run `/setup-changelog` to verify prerequisites and set up the pipeline.
 
-## No Build/Test/Lint
+## Testing
 
-There is no build step, test suite, or linter configured. Actions are YAML-only.
+```bash
+bash tests/run.sh    # 57 tests across 4 suites, no dependencies
+```
+
+Tests use mock `git`/`gh` commands via PATH override. No network, no framework.

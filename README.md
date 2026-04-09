@@ -59,13 +59,15 @@ cp templates/on-merge.yml .github/workflows/on-merge.yml
 
 **How it works:**
 1. PR merges to main
-2. git-cliff generates a raw changelog entry from conventional commits
-3. Three Claude agents analyze the PR diff, description, and commits independently
+2. git-cliff generates raw changelog entries from conventional commits
+3. Three Claude agents analyze the PR (diff, description, commits) via `structured_output`
 4. A synthesis agent merges consensus into one clean, user-facing entry
 5. A changelog PR is created and assigned to the original author
-6. The polished entry is posted to the team Slack channel
-7. Author reviews, optionally refines, and merges
+6. Slack notification posted to team channel (if configured)
+7. Author reviews and merges
 8. Falls back to raw git-cliff if AI is unavailable
+
+All shell logic in `scripts/` — testable locally with `bash tests/run.sh` (57 tests).
 
 **Required secrets** (per-repo or org-level):
 
