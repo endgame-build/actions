@@ -4,7 +4,7 @@
 # Also requires: .actions/templates/CHANGELOG.md available for bootstrap.
 set -eu
 
-ENTRY=$(echo "$SYNTHESIS_JSON" | jq -r '.entry // empty')
+ENTRY=$(echo "$SYNTHESIS_JSON" | jq -r '.entry // empty' 2>/dev/null) || ENTRY=""
 [ -z "$ENTRY" ] && echo "No content — skipping." && exit 0
 
 # Ensure CHANGELOG.md exists with [Unreleased] section

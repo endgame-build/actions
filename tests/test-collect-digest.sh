@@ -64,4 +64,57 @@ DIGEST=$(bash "$REPO_DIR/scripts/collect-digest.sh" 2>/dev/null)
 assert_contains "repo name is bold" '*test-repo*' "$DIGEST"
 assert_contains "entries are plain text" "Add user" "$DIGEST"
 
+echo "-- Edge case: CHANGELOG with no [Unreleased] section --"
+MOCK_DIR=$(mktemp -d)
+cat > "$MOCK_DIR/gh" << 'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"api"*"contents/CHANGELOG.md"*"--jq"*)
+    # Return changelog with only a release section, no [Unreleased]
+    cat << 'CL' | base64
+# Changelog
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- First release
+CL
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$MOCK_DIR/gh"
+unset GITHUB_OUTPUT 2>/dev/null || true
+export REPOS="endgame-build/no-unreleased"
+DIGEST=$(PATH="$MOCK_DIR:$PATH" bash "$REPO_DIR/scripts/collect-digest.sh" 2>/dev/null)
+assert_empty "no [Unreleased] section produces empty digest" "$DIGEST"
+rm -f "$MOCK_DIR/gh"
+rmdir "$MOCK_DIR"
+
+echo "-- Edge case: CHANGELOG with empty [Unreleased] (only whitespace) --"
+MOCK_DIR=$(mktemp -d)
+cat > "$MOCK_DIR/gh" << 'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"api"*"contents/CHANGELOG.md"*"--jq"*)
+    cat << 'CL' | base64
+# Changelog
+
+## [Unreleased]
+
+
+## [1.0.0] - 2026-01-01
+CL
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$MOCK_DIR/gh"
+export REPOS="endgame-build/empty-unreleased"
+DIGEST=$(PATH="$MOCK_DIR:$PATH" bash "$REPO_DIR/scripts/collect-digest.sh" 2>/dev/null)
+assert_empty "empty [Unreleased] produces empty digest" "$DIGEST"
+rm -f "$MOCK_DIR/gh"
+rmdir "$MOCK_DIR"
+
 report

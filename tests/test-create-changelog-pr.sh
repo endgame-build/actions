@@ -91,4 +91,26 @@ CL=$(cat "$TMPDIR/CHANGELOG.md" 2>/dev/null || echo '')
 assert_contains "handles backticks in entry" "claude-code-action" "$CL"
 rm -rf "$TMPDIR"
 
+echo "-- Known limitation: multiline entry from JSON --"
+# When synthesis returns {"entry":"### Added\n- Line 1\n- Line 2"}, jq -r
+# interprets \n as newlines. awk -v doesn't support embedded newlines.
+# The script should handle this gracefully.
+export SYNTHESIS_JSON='{"entry":"### Added\n- Line 1\n- Line 2"}'
+TMPDIR=$(mktemp -d)
+mkdir -p "$TMPDIR/.actions/templates"
+cp "$REPO_DIR/templates/CHANGELOG.md" "$TMPDIR/.actions/templates/CHANGELOG.md"
+OUTPUT=$(cd "$TMPDIR" && bash "$REPO_DIR/scripts/create-changelog-pr.sh" 2>&1 || true)
+CL=$(cat "$TMPDIR/CHANGELOG.md" 2>/dev/null || echo '')
+# The entry may be mangled by awk, but CHANGELOG.md should still be valid
+assert_not_empty "multiline entry produces some output" "$CL"
+assert_contains "CHANGELOG header preserved" "Changelog" "$CL"
+rm -rf "$TMPDIR"
+
+echo "-- Edge case: SYNTHESIS_JSON is invalid JSON --"
+export SYNTHESIS_JSON='not json at all'
+TMPDIR=$(mktemp -d)
+OUTPUT=$(cd "$TMPDIR" && bash "$REPO_DIR/scripts/create-changelog-pr.sh" 2>&1 || true)
+assert_contains "invalid JSON skips gracefully" "No content" "$OUTPUT"
+rm -rf "$TMPDIR"
+
 report

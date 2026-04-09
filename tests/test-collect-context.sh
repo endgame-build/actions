@@ -101,4 +101,60 @@ assert_eq "output is capped (under 250KB)" "true" "$([ "$CLIFF_SIZE" -lt 250000 
 rm -f "$GITHUB_OUTPUT" "$MOCK_DIR/git"
 rmdir "$MOCK_DIR"
 
+echo "-- Edge case: PR body with special chars (quotes, newlines, JSON) --"
+MOCK_DIR=$(mktemp -d)
+cat > "$MOCK_DIR/git" << 'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"diff --quiet"*) exit 1 ;;
+  "diff CHANGELOG.md") echo "+line" ;;
+  *"diff --stat"*) echo "f.ts | 1 +" ;;
+  *"diff --name-only"*) echo "f.ts" ;;
+  *) exit 0 ;;
+esac
+EOF
+cat > "$MOCK_DIR/gh" << 'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"--json body"*)
+    echo '{"key": "value with \"quotes\" and\nnewlines"}'
+    ;;
+  *"--json commits"*)
+    echo 'feat: add "quoted" feature; fix: resolve $VARIABLE issue'
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$MOCK_DIR/git" "$MOCK_DIR/gh"
+export GITHUB_OUTPUT=$(mktemp)
+PATH="$MOCK_DIR:$PATH" bash "$REPO_DIR/scripts/collect-context.sh" 2>/dev/null
+OUT=$(cat "$GITHUB_OUTPUT")
+assert_contains "desc handles JSON in body" "quotes" "$OUT"
+assert_contains "commits handles dollar signs" "VARIABLE" "$OUT"
+assert_contains "heredoc delimiters intact despite special chars" "EOF_desc" "$OUT"
+rm -f "$GITHUB_OUTPUT" "$MOCK_DIR/git" "$MOCK_DIR/gh"
+rmdir "$MOCK_DIR"
+
+echo "-- Edge case: exactly at 200KB boundary --"
+MOCK_DIR=$(mktemp -d)
+cat > "$MOCK_DIR/git" << 'MOCK'
+#!/usr/bin/env bash
+case "$*" in
+  *"diff --quiet"*) exit 1 ;;
+  "diff CHANGELOG.md")
+    # Generate exactly 200000 chars (at boundary)
+    python3 -c "print('x' * 200000)" 2>/dev/null || perl -e 'print "x" x 200000' 2>/dev/null
+    ;;
+  *"diff --stat"*) echo "f | 1 +" ;;
+  *"diff --name-only"*) echo "f" ;;
+  *) exit 0 ;;
+esac
+MOCK
+chmod +x "$MOCK_DIR/git"
+export GITHUB_OUTPUT=$(mktemp)
+STDERR=$(PATH="$MOCK_DIR:$SCRIPT_DIR/mocks:$PATH" bash "$REPO_DIR/scripts/collect-context.sh" 2>&1 >/dev/null)
+assert_not_contains "no warning at exact boundary" "WARNING" "$STDERR"
+rm -f "$GITHUB_OUTPUT" "$MOCK_DIR/git"
+rmdir "$MOCK_DIR"
+
 report
