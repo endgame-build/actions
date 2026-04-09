@@ -16,34 +16,21 @@ jobs:
           sparse-checkout: scripts
 
       - name: Collect changelogs
+        id: collect
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_READ_TOKEN }}
         run: |
           digest=$(bash scripts/collect-digest.sh)
-          if [ -z "$digest" ]; then
-            echo "DIGEST_EMPTY=true" >> "$GITHUB_ENV"
-          else
-            echo "$digest" > /tmp/digest.txt
-            echo "DIGEST_EMPTY=false" >> "$GITHUB_ENV"
-          fi
-
-      - name: Build Slack payload
-        if: env.DIGEST_EMPTY == 'false'
-        env:
-          SLACK_CHANNEL: ${{ vars.SLACK_PUBLIC_CHANNEL_ID }}
-        run: |
-          [ -z "$SLACK_CHANNEL" ] && echo "No channel ID — skipping." && exit 0
-          jq -n --arg channel "$SLACK_CHANNEL" \
-            --arg text "*Weekly Changelog Digest*
-
-          $(cat /tmp/digest.txt)" \
-            '{ channel: $channel, text: $text }' > /tmp/digest-payload.json
+          { echo "digest<<DIGEST_EOF"; echo "$digest"; echo "DIGEST_EOF"; } >> "$GITHUB_OUTPUT"
+          [ -z "$digest" ] && echo "empty=true" >> "$GITHUB_OUTPUT" || echo "empty=false" >> "$GITHUB_OUTPUT"
 
       - name: Post to Slack
-        if: env.DIGEST_EMPTY == 'false'
+        if: steps.collect.outputs.empty == 'false'
         continue-on-error: true
         uses: slackapi/slack-github-action@v2.1.0
         with:
           method: chat.postMessage
           token: ${{ secrets.SLACK_BOT_TOKEN }}
-          payload-file-path: /tmp/digest-payload.json
+          payload: |
+            channel: ${{ vars.SLACK_PUBLIC_CHANNEL_ID }}
+            text: "*Weekly Changelog Digest*\n\n${{ steps.collect.outputs.digest }}"
