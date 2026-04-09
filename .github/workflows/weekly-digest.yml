@@ -11,13 +11,15 @@ jobs:
     env:
       REPOS: "endgame-build/atelier endgame-build/jira-cli endgame-build/toc-flow"
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
       - name: Collect changelogs
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_READ_TOKEN }}
         run: |
-          gh api repos/endgame-build/actions/contents/scripts/collect-digest.sh \
-            -H "Accept: application/vnd.github.raw" > /tmp/collect-digest.sh
-          digest=$(bash /tmp/collect-digest.sh)
+          digest=$(bash scripts/collect-digest.sh)
           if [ -z "$digest" ]; then
             echo "DIGEST_EMPTY=true" >> "$GITHUB_ENV"
           else

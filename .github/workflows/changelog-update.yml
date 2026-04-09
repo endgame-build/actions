@@ -27,7 +27,6 @@ concurrency:
 
 env:
   JSON_SCHEMA: '{"type":"object","properties":{"entry":{"type":"string","description":"A keepachangelog entry or empty string"}},"required":["entry"]}'
-  ACTIONS_REPO: endgame-build/actions
 
 jobs:
   generate-entry:
@@ -41,14 +40,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout actions repo (templates, scripts, config)
+        uses: actions/checkout@v4
+        with:
+          repository: endgame-build/actions
+          path: .actions
+          sparse-checkout: |
+            templates
+            scripts
+            cliff.toml
+
       - name: Bootstrap and run git-cliff
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          [ ! -f CHANGELOG.md ] && gh api "repos/${{ env.ACTIONS_REPO }}/contents/templates/CHANGELOG.md" \
-            -H "Accept: application/vnd.github.raw" > CHANGELOG.md
-          gh api "repos/${{ env.ACTIONS_REPO }}/contents/cliff.toml" \
-            --jq '.content' | base64 -d > cliff.toml
+          [ ! -f CHANGELOG.md ] && cp .actions/templates/CHANGELOG.md CHANGELOG.md
+          cp .actions/cliff.toml cliff.toml
 
       - uses: orhun/git-cliff-action@v4
         with:
@@ -69,9 +74,7 @@ jobs:
             exit 0
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          gh api "repos/${{ env.ACTIONS_REPO }}/contents/scripts/collect-context.sh" \
-            -H "Accept: application/vnd.github.raw" > /tmp/collect-context.sh
-          bash /tmp/collect-context.sh
+          bash .actions/scripts/collect-context.sh
 
       # ── 3 agents + synthesis ────────────────────────────────────
       - name: Agent 1 — analyze PR diff
@@ -150,10 +153,7 @@ jobs:
           [ -z "$ENTRY" ] && echo "No content — skipping." && exit 0
 
           # Ensure CHANGELOG.md exists with [Unreleased] section
-          if [ ! -f CHANGELOG.md ]; then
-            gh api "repos/${{ env.ACTIONS_REPO }}/contents/templates/CHANGELOG.md" \
-              -H "Accept: application/vnd.github.raw" > CHANGELOG.md
-          fi
+          [ ! -f CHANGELOG.md ] && cp .actions/templates/CHANGELOG.md CHANGELOG.md
           if ! grep -q '## \[Unreleased\]' CHANGELOG.md; then
             { head -1 CHANGELOG.md; echo -e "\n## [Unreleased]\n"; tail -n +2 CHANGELOG.md; } > /tmp/cl.md
             mv /tmp/cl.md CHANGELOG.md
@@ -214,17 +214,19 @@ jobs:
           fetch-depth: 0
           token: ${{ github.token }}
 
-      - name: Run git-cliff fallback
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pr-number }}
-          PR_TITLE: ${{ inputs.pr-title }}
-          PR_AUTHOR: ${{ inputs.pr-author }}
+      - name: Checkout actions repo
+        uses: actions/checkout@v4
+        with:
+          repository: endgame-build/actions
+          path: .actions
+          sparse-checkout: |
+            templates
+            cliff.toml
+
+      - name: Bootstrap for git-cliff
         run: |
-          [ ! -f CHANGELOG.md ] && gh api "repos/${{ env.ACTIONS_REPO }}/contents/templates/CHANGELOG.md" \
-            -H "Accept: application/vnd.github.raw" > CHANGELOG.md
-          gh api "repos/${{ env.ACTIONS_REPO }}/contents/cliff.toml" \
-            --jq '.content' | base64 -d > cliff.toml
+          [ ! -f CHANGELOG.md ] && cp .actions/templates/CHANGELOG.md CHANGELOG.md
+          cp .actions/cliff.toml cliff.toml
 
       - uses: orhun/git-cliff-action@v4
         with:
