@@ -67,6 +67,7 @@ rm -f "$GITHUB_OUTPUT"
 
 echo ""
 echo "=== collect-digest.sh ==="
+unset GITHUB_OUTPUT
 export REPOS="endgame-build/test-repo endgame-build/empty-repo"
 
 DIGEST=$(bash "$REPO_DIR/scripts/collect-digest.sh" 2>/dev/null)
@@ -80,6 +81,17 @@ echo "=== collect-digest.sh — all repos fail ==="
 export REPOS="endgame-build/empty-repo"
 DIGEST=$(bash "$REPO_DIR/scripts/collect-digest.sh" 2>/dev/null)
 assert_contains "failed repos show error message" "Could not retrieve" "$DIGEST"
+
+echo ""
+echo "=== collect-digest.sh — GITHUB_OUTPUT mode ==="
+export GITHUB_OUTPUT=$(mktemp)
+export REPOS="endgame-build/test-repo"
+bash "$REPO_DIR/scripts/collect-digest.sh" 2>/dev/null
+GH_OUT=$(cat "$GITHUB_OUTPUT")
+assert_contains "writes digest to GITHUB_OUTPUT" "test-repo" "$GH_OUT"
+assert_contains "sets empty=false" "empty=false" "$GH_OUT"
+rm -f "$GITHUB_OUTPUT"
+unset GITHUB_OUTPUT
 
 echo ""
 echo "=== create-changelog-pr.sh (CHANGELOG manipulation only) ==="

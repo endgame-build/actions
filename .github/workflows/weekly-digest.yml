@@ -19,10 +19,7 @@ jobs:
         id: collect
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_READ_TOKEN }}
-        run: |
-          digest=$(bash scripts/collect-digest.sh)
-          { echo "digest<<DIGEST_EOF"; echo "$digest"; echo "DIGEST_EOF"; } >> "$GITHUB_OUTPUT"
-          [ -z "$digest" ] && echo "empty=true" >> "$GITHUB_OUTPUT" || echo "empty=false" >> "$GITHUB_OUTPUT"
+        run: bash scripts/collect-digest.sh
 
       - name: Post to Slack
         if: steps.collect.outputs.empty == 'false'
