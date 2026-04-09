@@ -149,13 +149,20 @@ jobs:
           ENTRY=$(echo "$SYNTHESIS_JSON" | jq -r '.entry // empty')
           [ -z "$ENTRY" ] && echo "No content — skipping." && exit 0
 
-          [ ! -f CHANGELOG.md ] && gh api "repos/${{ env.ACTIONS_REPO }}/contents/templates/CHANGELOG.md" \
-            -H "Accept: application/vnd.github.raw" > CHANGELOG.md
-          grep -q '## \[Unreleased\]' CHANGELOG.md || \
-            { head -1 CHANGELOG.md; echo -e "\n## [Unreleased]\n"; tail -n +2 CHANGELOG.md; } > /tmp/cl.md && mv /tmp/cl.md CHANGELOG.md
+          # Ensure CHANGELOG.md exists with [Unreleased] section
+          if [ ! -f CHANGELOG.md ]; then
+            gh api "repos/${{ env.ACTIONS_REPO }}/contents/templates/CHANGELOG.md" \
+              -H "Accept: application/vnd.github.raw" > CHANGELOG.md
+          fi
+          if ! grep -q '## \[Unreleased\]' CHANGELOG.md; then
+            { head -1 CHANGELOG.md; echo -e "\n## [Unreleased]\n"; tail -n +2 CHANGELOG.md; } > /tmp/cl.md
+            mv /tmp/cl.md CHANGELOG.md
+          fi
 
+          # Insert entry after [Unreleased]
           awk -v entry="$ENTRY" '/^## \[Unreleased\]/ { print; print ""; print entry; next } { print }' \
-            CHANGELOG.md > /tmp/cl.md && mv /tmp/cl.md CHANGELOG.md
+            CHANGELOG.md > /tmp/cl.md
+          mv /tmp/cl.md CHANGELOG.md
 
           branch="changelog/pr-${PR_NUMBER}"
           git push origin --delete "$branch" 2>/dev/null || true
