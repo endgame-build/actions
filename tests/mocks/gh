@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Mock gh for testing collect-context.sh and collect-digest.sh
+case "$*" in
+  "pr view"*"--json body"*)
+    echo "Adds user authentication with OAuth2 support."
+    ;;
+  "pr view"*"--json commits"*)
+    echo "feat: add OAuth2 login; feat: add session management"
+    ;;
+  "api repos/endgame-build/test-repo/contents/CHANGELOG.md"*)
+    # collect-digest.sh calls: gh api ... --jq '.content' | base64 -d
+    # So the mock needs to output the raw base64 content (the --jq extracts it)
+    cat << 'CHANGELOG' | base64
+# Changelog
+
+## [Unreleased]
+
+### Added
+
+- Add user authentication ([#1](url))
+
+### Fixed
+
+- Fix login redirect ([#2](url))
+
+## [1.0.0] - 2026-01-01
+CHANGELOG
+    ;;
+  "api repos/endgame-build/empty-repo/contents/CHANGELOG.md"*)
+    echo '{"message": "Not Found"}' >&2
+    exit 1
+    ;;
+  *)
+    echo "mock-gh: unhandled args: $*" >&2
+    ;;
+esac
