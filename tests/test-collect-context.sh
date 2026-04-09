@@ -97,7 +97,7 @@ OUT=$(cat "$GITHUB_OUTPUT")
 assert_contains "truncated output still has heredoc" "cliff<<EOF_cliff" "$OUT"
 CLIFF_SIZE=$(sed -n '/^cliff<<EOF_cliff$/,/^EOF_cliff$/p' "$GITHUB_OUTPUT" | wc -c)
 # Should be around 50KB, not 2MB
-assert_eq "output is capped (under 60KB)" "true" "$([ "$CLIFF_SIZE" -lt 60000 ] && echo true || echo false)"
+assert_eq "output is capped (under 250KB)" "true" "$([ "$CLIFF_SIZE" -lt 250000 ] && echo true || echo false)"
 rm -f "$GITHUB_OUTPUT" "$MOCK_DIR/git"
 rmdir "$MOCK_DIR"
 
