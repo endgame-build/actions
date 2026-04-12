@@ -20,6 +20,11 @@ echo "-- Commit links present for direct-push entries --"
 COMMIT_LINK_COUNT=$(grep -cE '\(\[`[a-f0-9]+`\]\(https://' "$GOOD" || true)
 assert_eq "good changelog has commit links" "true" "$([ "$COMMIT_LINK_COUNT" -gt 0 ] && echo true || echo false)"
 
+echo "-- Multi-SHA grouped entries supported --"
+# A grouped entry lists multiple SHAs separated by ", ". Example: ([`sha1`](url), [`sha2`](url))
+MULTI_SHA_LINE=$(grep -E '\[`[a-f0-9]+`\]\([^)]+\), \[`[a-f0-9]+`\]' "$GOOD" | head -1)
+assert_not_empty "good changelog has at least one multi-SHA grouped entry" "$MULTI_SHA_LINE"
+
 echo "-- Category ordering --"
 CL="$(cat "$GOOD")"
 ADDED_LINE=$(echo "$CL" | grep -n '### Added' | head -1 | cut -d: -f1)

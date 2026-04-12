@@ -15,7 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Rewrite README with comprehensive architecture documentation ([`dcbfa7b`](https://github.com/endgame-build/atelier/commit/dcbfa7b))
+- Rewrite README with comprehensive architecture documentation ([`dcbfa7b`](https://github.com/endgame-build/atelier/commit/dcbfa7b), [`12f75b1`](https://github.com/endgame-build/atelier/commit/12f75b1), [`a26482a`](https://github.com/endgame-build/atelier/commit/a26482a), [`e7bb85c`](https://github.com/endgame-build/atelier/commit/e7bb85c))
 - Consolidate 32 protocol skills into 3 families ([#90](https://github.com/endgame-build/atelier/pull/90))
 
 ### Removed
