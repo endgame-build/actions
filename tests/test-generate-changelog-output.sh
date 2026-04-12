@@ -78,6 +78,44 @@ if [ -n "${1:-}" ] && [ -f "$1" ]; then
   assert_contains "has Added section" "### Added" "$CL"
   HAS_ADDED=$(echo "$CL" | grep -c '### Added' || true)
   assert_eq "exactly one Added section" "1" "$HAS_ADDED"
+
+  echo "-- Concreteness: entries start with action verbs --"
+  CONCRETE_COUNT=$(grep -cE '^- (Add|Fix|Remove|Rename|Move|Replace|Improve|Enable|Disable|Merge|Split|Consolidate|Refactor|Convert|Switch|Upgrade|Update|Introduce|Document|Expose|Deprecate|Restore|Mark|Rewrite|Reconcile|Extract|Bump|Initialize|Align|Address) ' "$1" || true)
+  if [ "$ENTRY_COUNT" -gt 0 ]; then
+    PCT=$((CONCRETE_COUNT * 100 / ENTRY_COUNT))
+    echo "    Concrete: $CONCRETE_COUNT / $ENTRY_COUNT ($PCT%)"
+    assert_eq "concreteness >= 80%" "true" "$([ "$PCT" -ge 80 ] && echo true || echo false)"
+  fi
+
+  # --- Regression fixture: required SHAs present, forbidden subjects absent ---
+  # Usage: pass repo key as 2nd arg, e.g. "endgame-build/odevo-hub"
+  if [ -n "${2:-}" ] && [ -f "$SCRIPT_DIR/fixtures/required-entries.json" ]; then
+    echo "-- Regression fixture: $2 --"
+    REQUIRED=$(jq -r --arg repo "$2" '.per_repo[$repo].required_shas[]?' "$SCRIPT_DIR/fixtures/required-entries.json" 2>/dev/null || true)
+    for SHA in $REQUIRED; do
+      assert_contains "required SHA $SHA present" "$SHA" "$CL"
+    done
+    FORBIDDEN=$(jq -r --arg repo "$2" '.per_repo[$repo].forbidden_subjects[]?' "$SCRIPT_DIR/fixtures/required-entries.json" 2>/dev/null || true)
+    while IFS= read -r SUBJ; do
+      [ -z "$SUBJ" ] && continue
+      assert_not_contains "forbidden subject absent: $SUBJ" "$SUBJ" "$CL"
+    done <<< "$FORBIDDEN"
+  fi
+
+  # --- Coverage honesty: commits referenced / total direct commits ---
+  # Usage: pass repo clone path as 3rd arg
+  if [ -n "${3:-}" ] && [ -d "$3/.git" ]; then
+    echo "-- Coverage honesty --"
+    TOTAL_DIRECT=$(cd "$3" && git log --first-parent --no-merges --format="%h" main 2>/dev/null | wc -l | tr -d ' ')
+    UNIQUE_COMMIT_SHAS=$(grep -oE '\[`[a-f0-9]+`\]' "$1" | sort -u | wc -l | tr -d ' ')
+    if [ "$TOTAL_DIRECT" -gt 50 ]; then
+      PCT=$((UNIQUE_COMMIT_SHAS * 100 / TOTAL_DIRECT))
+      echo "    Direct commits: $TOTAL_DIRECT  referenced: $UNIQUE_COMMIT_SHAS ($PCT%)"
+      if [ "$PCT" -lt 40 ]; then
+        echo "    WARNING: coverage $PCT% is below 40% threshold"
+      fi
+    fi
+  fi
 fi
 
 report

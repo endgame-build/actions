@@ -1,0 +1,28 @@
+{
+  "description": "Commits that MUST appear as changelog entries. Failing means over-aggressive noise filtering.",
+  "per_repo": {
+    "endgame-build/changelog-sandbox": {
+      "required_shas": [
+        "fba8cdb",
+        "22b3cea",
+        "0598f8a"
+      ],
+      "forbidden_subjects": [
+        "Fix typos in README",
+        "Update comments",
+        "bd: backup"
+      ]
+    },
+    "endgame-build/odevo-hub": {
+      "required_shas": [
+        "bea47a2",
+        "c9c311a",
+        "ede1eb2"
+      ],
+      "forbidden_subjects": [
+        "Update comments",
+        "bd: backup"
+      ]
+    }
+  }
+}
