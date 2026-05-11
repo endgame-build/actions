@@ -1,0 +1,278 @@
+# Process Tome review comments by opening one PR per cluster.
+#
+# Reusable workflow consumed by adopting repos via:
+#   uses: endgame-build/actions/.github/workflows/process-tome-comments.yml@v1
+#
+# Two modes, dispatched by `inputs.mode` (auto-derived from event):
+#   process     — load unresolved comments from .tome/comments.jsonl, cluster
+#                 by (filePath, blockIndex), invoke the agent per cluster,
+#                 open one PR per cluster, capped at max_open_prs.
+#   consolidate — listener for pull_request:closed. If the PR was merged and
+#                 carried tome-comment-id labels, mark those comments resolved
+#                 in .tome/comments.jsonl on the default branch.
+#
+# Required secrets (caller passes via `secrets: inherit`):
+#   CLAUDE_CODE_OAUTH_TOKEN     — Claude Code OAuth (org-level)
+#   TOME_COMMENTS_APP_ID        — tome-comments[bot] App ID
+#   TOME_COMMENTS_APP_PRIVATE_KEY — App's private key (PEM)
+#
+# Per-repo onboarding (one-time):
+#   1. Install the tome-comments[bot] App on the repo
+#   2. Confirm CLAUDE_CODE_OAUTH_TOKEN is visible to the repo
+#   3. Add the wrapper file from process-tome-comments/wrapper.example.yml
+
+name: Process Tome Comments
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'process or consolidate'
+        type: string
+        required: true
+      max_open_prs:
+        description: 'Hard cap on open tome-comment PRs (0 = use upstream default 10)'
+        type: number
+        required: false
+        default: 0
+
+permissions:
+  contents: read
+
+env:
+  AUTOFIX_BOT_LOGIN: tome-comments[bot]
+  EFFECTIVE_MAX_OPEN_PRS: ${{ inputs.max_open_prs == 0 && 10 || inputs.max_open_prs }}
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PROCESS MODE
+  # ─────────────────────────────────────────────────────────────────────────
+  prepare:
+    if: inputs.mode == 'process'
+    name: Prepare clusters
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.prep.outputs.matrix }}
+      has_clusters: ${{ steps.prep.outputs.has_clusters }}
+    steps:
+      - name: Checkout consumer repo
+        uses: actions/checkout@v4
+
+      - name: Checkout actions repo (sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: endgame-build/actions
+          path: .actions
+          ref: ${{ github.action_ref || 'main' }}
+          sparse-checkout: |
+            process-tome-comments
+
+      - name: Skip if our own consolidate commit
+        # Q6 redundancy mitigation: a push triggered by our own bot's
+        # consolidate commit would re-process needlessly. Bail cleanly.
+        if: |
+          github.event_name == 'push' &&
+          github.event.head_commit.author.username == 'tome-comments[bot]'
+        run: |
+          echo "::notice::Tip commit is from tome-comments[bot]; skipping process."
+          {
+            echo "matrix={\"include\":[]}"
+            echo "has_clusters=false"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Compute cluster matrix
+        id: prep
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_OPEN_PRS: ${{ env.EFFECTIVE_MAX_OPEN_PRS }}
+        run: bash .actions/process-tome-comments/scripts/prepare-clusters.sh
+
+  process:
+    needs: prepare
+    if: inputs.mode == 'process' && needs.prepare.outputs.has_clusters == 'true'
+    name: Process cluster ${{ matrix.short_id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
+          private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+
+      - name: Resolve App bot identity
+        id: bot
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          LOGIN="${APP_SLUG}[bot]"
+          if [[ "$LOGIN" != "$AUTOFIX_BOT_LOGIN" ]]; then
+            echo "::error::App login '$LOGIN' != expected '$AUTOFIX_BOT_LOGIN'. Update env.AUTOFIX_BOT_LOGIN or rename the App."
+            exit 1
+          fi
+          ID=$(gh api "users/${LOGIN}" --jq .id)
+          {
+            echo "login=$LOGIN"
+            echo "email=${ID}+${LOGIN}@users.noreply.github.com"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout consumer repo (App token, fresh main)
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 1
+
+      - name: Checkout actions repo (sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: endgame-build/actions
+          path: .actions
+          ref: ${{ github.action_ref || 'main' }}
+          sparse-checkout: |
+            process-tome-comments
+
+      - name: Restore cluster JSON
+        # The matrix value carries idx; the cluster body is stored in an artifact.
+        # Each matrix item runs on a fresh runner, so we re-derive the cluster
+        # from the JSONL using the comment IDs encoded in the matrix.
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/clusters"
+          IDS_CSV='${{ matrix.comment_ids_csv }}'
+          FILE_PATH='${{ matrix.file_path }}'
+          BLOCK_INDEX='${{ matrix.block_index }}'
+          LATEST_ID='${{ matrix.latest_id }}'
+
+          IFS=',' read -ra IDS <<<"$IDS_CSV"
+          IDS_JSON=$(printf '%s\n' "${IDS[@]}" | jq -R . | jq -sc .)
+
+          jq -c -s --argjson ids "$IDS_JSON" \
+            --arg fp "$FILE_PATH" \
+            --argjson bi "$BLOCK_INDEX" \
+            --arg latest "$LATEST_ID" '
+              map(select(.isResolved == false and (.id | IN($ids[]))))
+              | sort_by(.createdAt)
+              | {
+                  file_path: $fp,
+                  block_index: $bi,
+                  latest_id: $latest,
+                  earliest_created_at: (min_by(.createdAt).createdAt // ""),
+                  comments: .
+                }
+            ' .tome/comments.jsonl > "${RUNNER_TEMP}/clusters/${{ matrix.idx }}.json"
+
+      - name: Build per-cluster prompt and load schema
+        id: build
+        env:
+          CLUSTER_FILE: ${{ runner.temp }}/clusters/${{ matrix.idx }}.json
+          SKILL_FILE: .actions/process-tome-comments/skill/SKILL.md
+        run: |
+          set -euo pipefail
+          bash .actions/process-tome-comments/scripts/build-cluster-prompt.sh \
+            > "${RUNNER_TEMP}/cluster-prompt.md"
+          echo "Prompt size: $(wc -c < "${RUNNER_TEMP}/cluster-prompt.md") bytes"
+          # Schema must be passed inline in claude_args (the action does not
+          # shell-expand $(...) inside claude_args). Load + minify here.
+          schema_json=$(jq -c . .actions/process-tome-comments/schema/pr-metadata.schema.json)
+          echo "schema_json=${schema_json}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code (apply edit + emit JSON metadata)
+        id: claude
+        uses: anthropics/claude-code-base-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt_file: ${{ runner.temp }}/cluster-prompt.md
+          claude_args: >-
+            --output-format json
+            --json-schema '${{ steps.build.outputs.schema_json }}'
+            --allowedTools "Read,Edit,Write,Glob,Grep"
+            --max-turns 20
+            --permission-mode bypassPermissions
+
+      - name: Snapshot diff and open PR
+        env:
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+          CLUSTER_FILE: ${{ runner.temp }}/clusters/${{ matrix.idx }}.json
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BOT_LOGIN: ${{ steps.bot.outputs.login }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
+        run: bash .actions/process-tome-comments/scripts/snapshot-and-pr.sh
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # CONSOLIDATE MODE
+  # ─────────────────────────────────────────────────────────────────────────
+  consolidate:
+    if: inputs.mode == 'consolidate'
+    name: Consolidate (post-merge JSONL update)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: tome-consolidate-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
+          private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+
+      - name: Resolve App bot identity
+        id: bot
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          LOGIN="${APP_SLUG}[bot]"
+          if [[ "$LOGIN" != "$AUTOFIX_BOT_LOGIN" ]]; then
+            echo "::error::App login '$LOGIN' != expected '$AUTOFIX_BOT_LOGIN'."
+            exit 1
+          fi
+          ID=$(gh api "users/${LOGIN}" --jq .id)
+          {
+            echo "login=$LOGIN"
+            echo "email=${ID}+${LOGIN}@users.noreply.github.com"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout consumer repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 1
+
+      - name: Checkout actions repo (sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: endgame-build/actions
+          path: .actions
+          ref: ${{ github.action_ref || 'main' }}
+          sparse-checkout: |
+            process-tome-comments
+
+      - name: Update JSONL on default branch
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BOT_LOGIN: ${{ steps.bot.outputs.login }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
+        run: bash .actions/process-tome-comments/scripts/consolidate.sh
