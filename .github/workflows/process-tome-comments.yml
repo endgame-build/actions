@@ -180,7 +180,7 @@ jobs:
         id: build
         env:
           CLUSTER_FILE: ${{ runner.temp }}/clusters/${{ matrix.idx }}.json
-          SKILL_FILE: .actions/process-tome-comments/skill/SKILL.md
+          PRELUDE_FILE: .actions/process-tome-comments/prompt/prelude.md
         run: |
           set -euo pipefail
           bash .actions/process-tome-comments/scripts/build-cluster-prompt.sh \

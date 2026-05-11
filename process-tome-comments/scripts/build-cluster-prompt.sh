@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Build the per-cluster agent prompt from skill content + cluster context.
+# Build the per-cluster agent prompt from the standing prelude + cluster context.
 #
 # Inputs (env):
 #   CLUSTER_FILE  - path to the cluster JSON (one of clusters/<idx>.json)
-#   SKILL_FILE    - path to the SKILL.md to inline
+#   PRELUDE_FILE  - path to the standing prompt prelude (prompt/prelude.md)
 #
 # Outputs:
-#   Writes the composed prompt to stdout. Caller redirects to a file
-#   passed to claude-code-action via prompt_file or prompt input.
+#   Writes the composed prompt to stdout. Caller redirects to a file passed
+#   to claude-code-base-action via prompt_file.
 
 set -euo pipefail
 
 CLUSTER_FILE="${CLUSTER_FILE:?CLUSTER_FILE not set}"
-SKILL_FILE="${SKILL_FILE:?SKILL_FILE not set}"
+PRELUDE_FILE="${PRELUDE_FILE:?PRELUDE_FILE not set}"
 
 cluster=$(cat "$CLUSTER_FILE")
 file_path=$(jq -r '.file_path' <<<"$cluster")
@@ -20,18 +20,10 @@ block_index=$(jq -r '.block_index' <<<"$cluster")
 comment_ids=$(jq -r '[.comments[].id] | join(", ")' <<<"$cluster")
 n_comments=$(jq -r '.comments | length' <<<"$cluster")
 
-# Compose the prompt: skill content first (background + contract), then concrete
-# cluster context. Strip the YAML frontmatter from the skill — it's metadata
-# for skill registration, not agent context, and a leading `---` confuses
-# CLI prompt parsers.
-awk '
-  BEGIN { in_fm = 0; done = 0 }
-  /^---$/ {
-    if (!done && NR == 1) { in_fm = 1; next }
-    if (in_fm) { in_fm = 0; done = 1; next }
-  }
-  !in_fm { print }
-' "$SKILL_FILE"
+# Inline the standing prelude verbatim. It contains the contract (ACTION A
+# apply edits, ACTION B emit JSON) plus forbidden actions and the unactionable
+# path. Concatenate cluster-specific context after.
+cat "$PRELUDE_FILE"
 
 cat <<EOF
 
@@ -58,7 +50,7 @@ cat <<'EOF'
 
 ## What to do now
 
-1. Read \`.tome/comments.jsonl\` to confirm the comment bodies match what's shown above (the workflow may stage stale data; the file is the source of truth).
+1. Read `.tome/comments.jsonl` to confirm the comment bodies match what's shown above (the workflow may stage stale data; the file is the source of truth).
 2. Read the source file at the path above.
 3. Apply the requested change(s) using the `Edit` or `Write` tool.
 4. Emit the final JSON object as specified in ACTION B above. Bare JSON only — no markdown fence, no narration.

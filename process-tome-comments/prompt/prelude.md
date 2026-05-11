@@ -1,13 +1,8 @@
----
-name: process-tome-comments-ci
-description: CI variant of process-comments. Reads a cluster of unresolved review comments from .tome/comments.jsonl, applies the requested edits to the source file, and emits PR metadata as schema-constrained JSON. No interactive prompts. Designed for headless invocation by the process-tome-comments GitHub Action.
----
-
 # Process Tome Comments (CI)
 
 Apply unresolved review comments from `.tome/comments.jsonl` to the source file and emit PR metadata for the workflow to package as a pull request.
 
-This skill is invoked headlessly by the `endgame-build/actions/process-tome-comments` reusable workflow. It runs once per cluster of comments anchored to the same `(filePath, blockIndex)`.
+This prelude is the standing instructions for the `process-tome-comments` GitHub Action. It is concatenated with cluster-specific context to form the prompt for each per-cluster agent invocation. Each invocation handles one cluster of comments anchored to the same `(filePath, blockIndex)`.
 
 ## Two required actions
 

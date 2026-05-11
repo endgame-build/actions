@@ -47,13 +47,13 @@ Copy `wrapper.example.yml` to the consumer repo's `.github/workflows/process-tom
 
 ## How it differs from the human `/process-comments` skill
 
-The interactive `process-comments` skill (at `odevo-hub/.claude/skills/process-comments/SKILL.md` and elsewhere) requires user confirmation via `AskUserQuestion` for every edit. This CI variant:
+The interactive `process-comments` skill (at `odevo-hub/.claude/skills/process-comments/SKILL.md` and elsewhere) requires user confirmation via `AskUserQuestion` for every edit. This action:
 
 - Removes all interactive prompts; the agent applies its best edit directly
 - Drops the JSONL self-write (a separate listener handles that on PR merge, avoiding merge conflicts between concurrent PRs)
 - Constrains the agent's final output to a JSON schema for deterministic PR creation by the workflow
 
-The CI skill lives at `process-tome-comments/skill/SKILL.md` in this repo and is sparse-checked-out at workflow runtime.
+The agent receives the standing instructions inline at the top of its prompt. The instructions live at `process-tome-comments/prompt/prelude.md` and are sparse-checked-out at workflow runtime. This is NOT loaded via Claude Code's skill mechanism — it's plain prompt content concatenated with cluster-specific context by `scripts/build-cluster-prompt.sh`.
 
 ## Architecture
 
@@ -81,8 +81,8 @@ Empirical (per the spike): ~$0.11/cluster steady-state in Claude API costs. Firs
 ```
 process-tome-comments/
 ├── README.md                       # this file
-├── skill/
-│   └── SKILL.md                    # CI-adapted process-comments skill
+├── prompt/
+│   └── prelude.md                  # standing agent instructions (inlined into prompt)
 ├── schema/
 │   └── pr-metadata.schema.json     # JSON schema for agent's structured output
 ├── scripts/
