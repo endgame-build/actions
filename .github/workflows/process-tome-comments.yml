@@ -157,8 +157,7 @@ jobs:
           IDX: ${{ matrix.idx }}
         run: python3 .actions/process-tome-comments/scripts/restore_cluster.py
 
-      - name: Build per-cluster prompt and load schema
-        id: build
+      - name: Build per-cluster prompt
         env:
           CLUSTER_FILE: ${{ runner.temp }}/clusters/${{ matrix.idx }}.json
           PRELUDE_FILE: .actions/process-tome-comments/prompt/prelude.md
@@ -167,27 +166,35 @@ jobs:
           python3 .actions/process-tome-comments/scripts/build_cluster_prompt.py \
             > "${RUNNER_TEMP}/cluster-prompt.md"
           echo "Prompt size: $(wc -c < "${RUNNER_TEMP}/cluster-prompt.md") bytes"
-          # Schema must be passed inline in claude_args (the action does not
-          # shell-expand $(...) inside claude_args). Load + minify here.
-          schema_json=$(python3 -c "import json,sys; print(json.dumps(json.load(open('.actions/process-tome-comments/schema/pr-metadata.schema.json')), separators=(',',':')))")
-          echo "schema_json=${schema_json}" >> "$GITHUB_OUTPUT"
 
-      - name: Run Claude Code (apply edit + emit JSON metadata)
-        id: claude
-        uses: anthropics/claude-code-base-action@v1
+      - name: Setup Node.js (for pi-coding-agent)
+        uses: actions/setup-node@v4
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt_file: ${{ runner.temp }}/cluster-prompt.md
-          claude_args: >-
-            --output-format json
-            --json-schema '${{ steps.build.outputs.schema_json }}'
-            --allowedTools "Read,Edit,Write,Glob,Grep"
-            --max-turns 20
-            --permission-mode bypassPermissions
+          node-version: '20'
+
+      - name: Install pi (cached)
+        run: npm install -g @earendil-works/pi-coding-agent
+
+      - name: Configure pi for Ollama Cloud
+        env:
+          AUTOFIX_MODEL: ${{ vars.AUTOFIX_MODEL || 'gpt-oss:120b' }}
+        run: python3 .actions/process-tome-comments/scripts/configure_pi.py
+
+      - name: Mask Ollama API key
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: echo "::add-mask::$OLLAMA_API_KEY"
+
+      - name: Run pi (apply edit + emit JSON metadata)
+        id: agent
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: python3 .actions/process-tome-comments/scripts/run_agent.py
+        # Outputs: agent_output_path (path to last assistant text)
 
       - name: Snapshot diff and open PR
         env:
-          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+          AGENT_OUTPUT_PATH: ${{ steps.agent.outputs.agent_output_path }}
           CLUSTER_FILE: ${{ runner.temp }}/clusters/${{ matrix.idx }}.json
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           BOT_LOGIN: ${{ steps.bot.outputs.login }}

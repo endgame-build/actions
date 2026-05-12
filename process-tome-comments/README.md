@@ -9,8 +9,9 @@ Reusable workflow that converts unresolved comments in a repo's `.tome/comments.
 | Repo file | `.tome/comments.jsonl` — one JSON object per line. Written by the Tome editor. |
 | Workflow input | `mode` — `process` or `consolidate`. |
 | Workflow input | `max_open_prs` — hard cap on open tome-comment PRs (0 = use upstream default `10`). |
-| Org secret | `CLAUDE_CODE_OAUTH_TOKEN` — for the Claude agent invocation. |
+| Org secret | `OLLAMA_API_KEY` — for the pi agent invocation against Ollama Cloud. |
 | Org secret | `TOME_COMMENTS_APP_ID`, `TOME_COMMENTS_APP_PRIVATE_KEY` — for the `tome-comments[bot]` App that pushes and opens PRs. |
+| Repo variable (optional) | `AUTOFIX_MODEL` — Ollama Cloud model id. Defaults to `gpt-oss:120b`. |
 
 ## Triggers (set in the per-repo wrapper)
 
@@ -30,7 +31,7 @@ A `concurrency` group `tome-comments-${{ github.repository }}` serializes all ru
 4. **Per cluster, in a matrix step (max-parallel: 1):**
    - Mint a `tome-comments[bot]` App installation token.
    - Fresh checkout of the consumer repo at default branch.
-   - Run Claude (via `anthropics/claude-code-base-action@v1`) with `--allowedTools "Read,Edit,Write,Glob,Grep"`, the prompt assembled from `prompt/prelude.md` + cluster context, and `--json-schema` set to `schema/pr-metadata.schema.json`. Agent edits the working tree directly; final output is constrained to `{title, body, addresses_comment_ids}`.
+   - Run [pi](https://pi.dev/) against Ollama Cloud (provider configured via `.pi/settings.json`, written at runtime by `configure_pi.py`). The agent has `read`/`write`/`edit` tools; the `bash` tool is blocked by `extensions/block-bash.ts` so the agent can't bypass the workflow's git/gh layer. Pi has no native schema enforcement, so the prompt asks for a JSON object matching `schema/pr-metadata.schema.json` and `snapshot_and_pr.py` post-hoc extracts the first balanced `{…}` from the agent's final message and validates it.
    - Validate: JSON conforms; staged diff is non-empty; no disallowed paths touched (`.github/`, `.tome/comments.jsonl`, `Taskfile.yml`, `scripts/`); strip `@claude` → `@-claude` from title/body.
    - Branch as `tome-comment/<latest-comment-uuid>`, commit with the agent's title as subject, push via the App token.
    - Open PR with labels `tome-comment-id:<uuid>` (one per addressed comment) and reviewers = union of comment authors.
@@ -58,13 +59,17 @@ process-tome-comments/
 ├── prompt/
 │   └── prelude.md                  # standing agent instructions (inlined verbatim into each prompt)
 ├── schema/
-│   └── pr-metadata.schema.json     # constrains agent's final output
+│   └── pr-metadata.schema.json     # documents the expected agent output shape (validated post-hoc by snapshot_and_pr.py)
+├── extensions/
+│   └── block-bash.ts               # pi extension that blocks the bash tool
 ├── scripts/                        # Python 3.11+, stdlib only
 │   ├── _common.py                  # shared helpers (subprocess wrappers, Comment/Cluster types)
 │   ├── prepare_clusters.py         # filter + cluster + slot budget + emit matrix
 │   ├── restore_cluster.py          # rebuild cluster JSON on each matrix runner
 │   ├── build_cluster_prompt.py     # concatenate prelude + cluster context
-│   ├── snapshot_and_pr.py          # validate, branch/commit/push, open PR
+│   ├── configure_pi.py             # write .pi/settings.json + install block-bash extension
+│   ├── run_agent.py                # invoke pi -p --mode json; extract last assistant text
+│   ├── snapshot_and_pr.py          # parse JSON, branch/commit/push, open PR
 │   └── consolidate.py              # post-merge JSONL update
 └── wrapper.example.yml             # per-repo workflow file (copy verbatim, ~25 lines)
 
