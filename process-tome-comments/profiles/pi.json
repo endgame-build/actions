@@ -21,6 +21,6 @@
     "allow_domain": ["ollama.com"]
   },
   "environment": {
-    "allow_vars": ["OLLAMA_API_KEY", "AUTOFIX_MODEL", "GITHUB_WORKSPACE", "RUNNER_TEMP", "HOME", "PATH"]
+    "allow_vars": ["OLLAMA_API_KEY", "AUTOFIX_MODEL", "PI_OFFLINE", "GITHUB_WORKSPACE", "RUNNER_TEMP", "HOME", "PATH"]
   }
 }

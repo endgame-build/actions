@@ -205,6 +205,11 @@ jobs:
           # process-tome-comments/profiles/pi.json.
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
           AUTOFIX_MODEL: ${{ vars.AUTOFIX_MODEL || 'gpt-oss:120b' }}
+          # Disable pi's startup network operations (update checks, telemetry,
+          # package update checks). The nono profile only allows egress to
+          # ollama.com, so these would be silently denied — pre-empting them
+          # avoids the noise.
+          PI_OFFLINE: '1'
         run: python3 .actions/process-tome-comments/scripts/run_agent.py
         # Outputs: agent_output_path (path to last assistant text)
 
