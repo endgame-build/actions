@@ -43,14 +43,22 @@ def main() -> int:
     # pi -p (--print) prints the final response and exits. --mode json emits
     # the event stream so we can robustly parse the last assistant message
     # without depending on stdout formatting.
-    cmd = ["pi", "-p", "--mode", "json", prompt]
+    #
+    # nono is the unconditional sandbox boundary. The profile lives in
+    # process-tome-comments/profiles/pi.json (sparse-checked-out into
+    # `.actions/`); it restricts the agent to the working tree + ~/.pi state,
+    # network to ollama.com only, and passes only OLLAMA_API_KEY through.
+    profile_path = Path(".actions/process-tome-comments/profiles/pi.json").resolve()
+    if not profile_path.exists():
+        print(f"::error::nono profile not found at {profile_path}", file=sys.stderr)
+        return 1
 
-    # Optional sandboxing layer. When TOME_COMMENTS_SANDBOX=nono, prepend
-    # `nono run --allow $GITHUB_WORKSPACE --` so pi can only write under
-    # the workspace and reach the configured network endpoints.
-    if os.environ.get("TOME_COMMENTS_SANDBOX") == "nono":
-        workspace = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
-        cmd = ["nono", "run", "--allow", workspace, "--", *cmd]
+    cmd = [
+        "nono", "run",
+        "--profile", str(profile_path),
+        "--",
+        "pi", "-p", "--mode", "json", prompt,
+    ]
 
     proc = subprocess.run(
         cmd,

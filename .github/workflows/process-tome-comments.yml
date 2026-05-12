@@ -172,8 +172,19 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install pi (cached)
+      - name: Install pi
         run: npm install -g @earendil-works/pi-coding-agent
+
+      - name: Install nono (sandbox)
+        run: |
+          set -euo pipefail
+          VERSION=$(curl -sI https://github.com/always-further/nono/releases/latest \
+            | grep -i '^location:' | grep -oP 'v\K[0-9.]+')
+          ARCH=$(dpkg --print-architecture)
+          curl -fsSL -o "/tmp/nono.deb" \
+            "https://github.com/always-further/nono/releases/download/v${VERSION}/nono-cli_${VERSION}_${ARCH}.deb"
+          sudo dpkg -i /tmp/nono.deb
+          nono --version
 
       - name: Configure pi for Ollama Cloud
         env:
@@ -189,12 +200,11 @@ jobs:
         id: agent
         env:
           # Only OLLAMA_API_KEY is exposed to the agent. The App token is
-          # set in the next step's env, NOT here — so the agent can't call
-          # GitHub APIs or push branches even though `bash` is available.
+          # set in the next step's env, NOT here. The nono sandbox additionally
+          # restricts filesystem + network at the kernel level — see
+          # process-tome-comments/profiles/pi.json.
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
-          # Optional defense-in-depth: set TOME_COMMENTS_SANDBOX=nono on the
-          # consumer repo (as a repo variable) to wrap pi in `nono run`.
-          TOME_COMMENTS_SANDBOX: ${{ vars.TOME_COMMENTS_SANDBOX }}
+          AUTOFIX_MODEL: ${{ vars.AUTOFIX_MODEL || 'gpt-oss:120b' }}
         run: python3 .actions/process-tome-comments/scripts/run_agent.py
         # Outputs: agent_output_path (path to last assistant text)
 

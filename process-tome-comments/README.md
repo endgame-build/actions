@@ -31,7 +31,7 @@ A `concurrency` group `tome-comments-${{ github.repository }}` serializes all ru
 4. **Per cluster, in a matrix step (max-parallel: 1):**
    - Mint a `tome-comments[bot]` App installation token.
    - Fresh checkout of the consumer repo at default branch.
-   - Run [pi](https://pi.dev/) against Ollama Cloud (provider configured via `.pi/settings.json`, written at runtime by `configure_pi.py`). The agent has `read`/`write`/`edit`/`bash` tools. The App token is **not** in the agent step's env — only the snapshot step's — so a hostile `git push` or `gh` invocation from the agent fails on missing auth. Pi has no native schema enforcement, so the prompt asks for a JSON object matching `schema/pr-metadata.schema.json` and `snapshot_and_pr.py` post-hoc extracts the first balanced `{…}` from the agent's final message and validates it.
+   - Run [pi](https://pi.dev/) against Ollama Cloud (provider configured via `.pi/settings.json`, written at runtime by `configure_pi.py`). The agent runs inside [nono](https://nono.sh/) with the profile at `profiles/pi.json` — filesystem confined to the working tree + `~/.pi`, network confined to `ollama.com`, only `OLLAMA_API_KEY` passed through. The App token is **not** in the agent step's env (it's only in the snapshot step), so a hostile git/gh invocation can't reach GitHub even if it bypassed the sandbox. Pi has no native schema enforcement, so the prompt asks for a JSON object matching `schema/pr-metadata.schema.json` and `snapshot_and_pr.py` post-hoc extracts the first balanced `{…}` from the agent's final message and validates it.
    - Validate: JSON conforms; staged diff is non-empty; no disallowed paths touched (`.github/`, `.tome/comments.jsonl`, `Taskfile.yml`, `scripts/`); strip `@claude` → `@-claude` from title/body.
    - Branch as `tome-comment/<latest-comment-uuid>`, commit with the agent's title as subject, push via the App token.
    - Open PR with labels `tome-comment-id:<uuid>` (one per addressed comment) and reviewers = union of comment authors.
@@ -60,6 +60,8 @@ process-tome-comments/
 │   └── prelude.md                  # standing agent instructions (inlined verbatim into each prompt)
 ├── schema/
 │   └── pr-metadata.schema.json     # documents the expected agent output shape (validated post-hoc by snapshot_and_pr.py)
+├── profiles/
+│   └── pi.json                     # nono profile: workdir + ~/.pi r+w, network to ollama.com only
 ├── scripts/                        # Python 3.11+, stdlib only
 │   ├── _common.py                  # shared helpers (subprocess wrappers, Comment/Cluster types)
 │   ├── prepare_clusters.py         # filter + cluster + slot budget + emit matrix
@@ -81,6 +83,12 @@ process-tome-comments/
 - Cross-block edit conflicts (relies on GitHub's merge-block + reviewer-driven `@claude rebase`).
 - A "comment is unactionable" signal beyond the closed-PR-label safety net (resolve in Tome is the canonical reject).
 
-## Optional sandbox
+## Sandbox
 
-The agent runs in the consumer repo's working tree with `bash` available; with no App token in scope, it can't reach GitHub, but it could in principle exfiltrate the working tree or the `OLLAMA_API_KEY` via outbound HTTP. To clamp that, wrap the `pi` invocation in [nono](https://nono.sh/) by setting `vars.TOME_COMMENTS_SANDBOX=nono` on the consumer repo. `run_agent.py` will then prepend `nono run --allow $GITHUB_WORKSPACE --` to the `pi` command, restricting filesystem writes and network egress.
+The agent always runs inside [nono](https://nono.sh/) with the profile at `profiles/pi.json`. The kernel-level boundary (Linux Landlock) enforces:
+
+- **Filesystem:** read+write the consumer repo's working tree (`$WORKDIR`) and `~/.pi` only.
+- **Network:** outbound HTTP/HTTPS to `ollama.com` only — exfiltration to other hosts is blocked at the egress point.
+- **Environment:** only `OLLAMA_API_KEY` (+ a handful of operational vars) is passed through; other secrets in the runner env are not visible to the agent.
+
+GHA Ubuntu runners ship a Landlock-capable kernel (5.13+); first-run failures will most likely surface as denied filesystem reads to paths the profile didn't anticipate. Iterate by extending `filesystem.allow` in `profiles/pi.json`.
