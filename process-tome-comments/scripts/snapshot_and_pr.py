@@ -23,11 +23,18 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
-from _common import error, git, gh_json, notice, run, sanitize_claude_mention, warning
+from _common import error, git, notice, run, sanitize_claude_mention, warning
 
 
 DISALLOWED_PATH_RE = re.compile(r"^(\.github/|\.tome/comments\.jsonl$|Taskfile\.yml$|scripts/)")
+
+
+class Metadata(NamedTuple):
+    title: str
+    body: str
+    addresses_comment_ids: list[str]
 
 
 def fail(msg: str, *, code: int = 1) -> None:
@@ -35,7 +42,7 @@ def fail(msg: str, *, code: int = 1) -> None:
     sys.exit(code)
 
 
-def validate_metadata(raw: str) -> dict[str, object]:
+def validate_metadata(raw: str) -> Metadata:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
@@ -54,7 +61,7 @@ def validate_metadata(raw: str) -> dict[str, object]:
     for cid in ids:
         if not isinstance(cid, str):
             fail("addresses_comment_ids contains non-string item")
-    return {"title": title, "body": body, "addresses_comment_ids": ids}
+    return Metadata(title=title, body=body, addresses_comment_ids=ids)
 
 
 def working_tree_has_changes() -> bool:
@@ -88,12 +95,12 @@ def main() -> int:
 
     # Validate + sanitize
     meta = validate_metadata(structured_output)
-    title = sanitize_claude_mention(meta["title"])  # type: ignore[arg-type]
+    title = sanitize_claude_mention(meta.title)
     if len(title) > 70:
         warning("Agent title >70 chars; truncating")
         title = title[:70]
-    body = sanitize_claude_mention(meta["body"])  # type: ignore[arg-type]
-    ids: list[str] = meta["addresses_comment_ids"]  # type: ignore[assignment]
+    body = sanitize_claude_mention(meta.body)
+    ids = meta.addresses_comment_ids
 
     # Working-tree check
     if not working_tree_has_changes():

@@ -154,7 +154,6 @@ jobs:
           IDS_CSV: ${{ matrix.comment_ids_csv }}
           FILE_PATH: ${{ matrix.file_path }}
           BLOCK_INDEX: ${{ matrix.block_index }}
-          LATEST_ID: ${{ matrix.latest_id }}
           IDX: ${{ matrix.idx }}
         run: python3 .actions/process-tome-comments/scripts/restore_cluster.py
 

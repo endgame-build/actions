@@ -1,6 +1,6 @@
 """Shared helpers for process-tome-comments scripts.
 
-Stdlib-only (Python 3.10+, available on Ubuntu GHA runners by default).
+Stdlib-only (Python 3.11+, available on Ubuntu GHA runners by default).
 Subprocess wrappers around `git` and `gh`. JSON I/O. GitHub Actions
 output and notice/error helpers.
 """
@@ -122,10 +122,7 @@ class Cluster:
 
     @property
     def authors(self) -> list[str]:
-        seen: dict[str, None] = {}
-        for c in self.comments:
-            seen.setdefault(c.author_login, None)
-        return list(seen.keys())
+        return list(dict.fromkeys(c.author_login for c in self.comments))
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -157,7 +157,6 @@ def main() -> int:
                 "file_path": cl.file_path,
                 "block_index": str(cl.block_index),
                 "comment_ids_csv": ",".join(c.id for c in cl.comments),
-                "authors_csv": ",".join(cl.authors),
             }
         )
 
