@@ -98,6 +98,11 @@ def validate_metadata(raw: str) -> Metadata:
 # Comment-label prefix used to associate PRs with the comments they address.
 COMMENT_LABEL_PREFIX = "tome-comment-id:"
 
+# Common label applied to every tome-PR. Enables a single `label:` search to
+# enumerate the backlog; removed by `consolidate` after a successful merge so
+# the scan stays bounded over a repo's lifetime.
+TOME_PR_LABEL = "auto:tome-comment-pr"
+
 
 def comment_label(comment_id: str) -> str:
     return f"{COMMENT_LABEL_PREFIX}{comment_id}"

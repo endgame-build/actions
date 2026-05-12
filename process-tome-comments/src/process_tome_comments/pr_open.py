@@ -1,13 +1,4 @@
-"""``pr-open`` subcommand: snapshot the agent's diff, branch, push, open PR.
-
-Inputs come from env vars set by the workflow:
-
-- ``AGENT_OUTPUT_PATH``  — file containing the agent's final assistant text
-- ``MATRIX_IDX``         — index of the cluster under ``$RUNNER_TEMP/clusters/<idx>.json``
-- ``APP_TOKEN``          — App-minted token; not in the agent step's env
-- ``APP_SLUG``           — App slug from ``actions/create-github-app-token``
-- ``GITHUB_REPOSITORY``  — owner/repo (GHA-provided)
-"""
+"""``pr-open`` subcommand: validate agent output, snapshot diff, branch, push, open PR."""
 
 from __future__ import annotations
 
@@ -16,29 +7,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .bot_git import (
-    BotIdentity,
-    commit,
-    configure_git_identity,
-    default_branch,
-    gh,
-    push,
-)
-from .comments import Cluster, sanitize_claude_mention
+from .bot import BotSession
+from .comments import Cluster
 from .gha import error, git, notice, warning
-from .metadata import MetadataError, labels_for_ids, validate_metadata
-from .policy import filter_disallowed
+from .metadata import MetadataError
+from .policy import policy_violations
+from .pr_plan import PRPlan
 
 
 def working_tree_has_changes() -> bool:
     git("add", "-A")
     r = git("diff", "--cached", "--quiet", check=False)
     return r.returncode != 0
-
-
-def staged_disallowed_paths() -> list[str]:
-    r = git("diff", "--cached", "--name-only")
-    return filter_disallowed(r.stdout.strip().splitlines())
 
 
 def main() -> int:
@@ -54,17 +34,10 @@ def main() -> int:
     raw_output = agent_output_path.read_text(encoding="utf-8")
 
     try:
-        meta = validate_metadata(raw_output)
+        plan = PRPlan.build(cluster, raw_output)
     except MetadataError as e:
         error(f"Agent output rejected: {e}")
         return 1
-
-    title = sanitize_claude_mention(meta.title)
-    if len(title) > 70:
-        warning("Agent title >70 chars; truncating")
-        title = title[:70]
-    body = sanitize_claude_mention(meta.body)
-    ids = list(meta.addresses_comment_ids)
 
     if not working_tree_has_changes():
         warning(
@@ -73,7 +46,7 @@ def main() -> int:
         )
         return 0
 
-    bad = staged_disallowed_paths()
+    bad = policy_violations()
     if bad:
         error("Agent modified disallowed paths; aborting cluster:")
         for p in bad:
@@ -81,34 +54,31 @@ def main() -> int:
         git("checkout", "--", ".")
         return 1
 
-    identity = BotIdentity.resolve(token=app_token, app_slug=app_slug)
-    configure_git_identity(identity)
+    session = BotSession.open(token=app_token, app_slug=app_slug, repo=repo)
+    base = session.default_branch()
 
-    branch = f"tome-comment/{cluster.latest_id}"
-    git("checkout", "-b", branch)
-    commit(subject=title, body=body)
+    git("checkout", "-b", plan.branch)
+    session.commit(subject=plan.title, body=plan.body)
 
     try:
-        push(identity, repo=repo, refspec=f"HEAD:refs/heads/{branch}")
+        session.push(f"HEAD:refs/heads/{plan.branch}")
     except subprocess.CalledProcessError:
         return 2
 
-    labels = ",".join(labels_for_ids(ids))
-    reviewers = ",".join(sorted(cluster.authors))
-    base = default_branch(identity, repo)
+    labels = ",".join(plan.labels)
+    reviewers = ",".join(plan.reviewers)
 
     try:
-        gh(
+        session.gh(
             [
                 "pr", "create",
                 "--base", base,
-                "--head", branch,
-                "--title", title,
-                "--body", body,
+                "--head", plan.branch,
+                "--title", plan.title,
+                "--body", plan.body,
                 "--label", labels,
                 "--reviewer", reviewers,
-            ],
-            identity,
+            ]
         )
     except subprocess.CalledProcessError as e:
         error(f"gh pr create failed: {e.stderr}")

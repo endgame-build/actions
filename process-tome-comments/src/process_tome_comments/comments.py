@@ -188,12 +188,3 @@ def cluster_comments(comments: Iterable[Comment]) -> list[Cluster]:
         for (fp, bi), cs in by_key.items()
     ]
     return sorted(clusters, key=lambda cl: cl.earliest_created_at)
-
-
-def sanitize_claude_mention(text: str) -> str:
-    """Replace literal ``@claude`` with ``@-claude``.
-
-    Avoids triggering other org workflows that filter on
-    ``contains(comment.body, '@claude')``.
-    """
-    return text.replace("@claude", "@-claude")

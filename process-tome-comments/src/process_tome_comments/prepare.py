@@ -1,7 +1,7 @@
 """``prepare`` subcommand: compute which clusters this run will process.
 
-Reads ``.tome/comments.jsonl``, applies the idempotency filter, clusters
-remaining comments, computes the slot budget against open tome-comment PRs,
+Reads ``.tome/comments.jsonl``, fetches the tome-PR backlog once, applies the
+idempotency filter, clusters remaining comments, computes the slot budget,
 takes the oldest ``slots`` clusters, writes each to
 ``$RUNNER_TEMP/clusters/<idx>.json``, and emits the matrix list to
 ``$GITHUB_OUTPUT``.
@@ -17,9 +17,9 @@ import json
 import os
 from pathlib import Path
 
+from .backlog import TomeBacklog
 from .comments import Comment, Cluster, cluster_comments, load_comments
-from .gha import gh_json, gha_output, notice
-from .metadata import COMMENT_LABEL_PREFIX, comment_label
+from .gha import gha_output, notice
 
 
 def _empty_output() -> None:
@@ -27,46 +27,10 @@ def _empty_output() -> None:
     gha_output("has_clusters", "false")
 
 
-def comment_has_existing_pr(comment_id: str) -> bool:
-    """Idempotency check: any PR (any state) carrying ``tome-comment-id:<uuid>``."""
-    result = gh_json(
-        [
-            "pr",
-            "list",
-            "--state",
-            "all",
-            "--search",
-            f"label:{comment_label(comment_id)}",
-            "--json",
-            "number",
-        ],
-        default=[],
-    )
-    return bool(result)
-
-
-def count_open_tome_prs() -> int:
-    result = gh_json(
-        [
-            "pr",
-            "list",
-            "--state",
-            "open",
-            "--search",
-            f"label:{COMMENT_LABEL_PREFIX.rstrip(':')}",
-            "--json",
-            "number",
-        ],
-        default=[],
-    )
-    return len(result)
-
-
-def filter_unhandled(comments: list[Comment]) -> list[Comment]:
-    """Drop comments that already have an associated PR (any state)."""
+def filter_unhandled(comments: list[Comment], backlog: TomeBacklog) -> list[Comment]:
     out: list[Comment] = []
     for c in comments:
-        if comment_has_existing_pr(c.id):
+        if backlog.is_addressed(c.id):
             print(f"skip {c.id}: existing PR")
             continue
         out.append(c)
@@ -104,7 +68,13 @@ def main() -> int:
         _empty_output()
         return 0
 
-    fresh = filter_unhandled(unresolved)
+    backlog = TomeBacklog.fetch()
+    print(
+        f"Backlog: {len(backlog.addressed_comment_ids)} addressed, "
+        f"{backlog.open_pr_count} open"
+    )
+
+    fresh = filter_unhandled(unresolved, backlog)
     print(f"After idempotency filter: {len(fresh)}")
     if not fresh:
         _empty_output()
@@ -113,9 +83,10 @@ def main() -> int:
     clusters = cluster_comments(fresh)
     print(f"Clusters: {len(clusters)}")
 
-    open_count = count_open_tome_prs()
-    picked = pick_clusters(clusters, max_open_prs=max_open_prs, open_count=open_count)
-    print(f"Open tome-comment PRs: {open_count}; will process {len(picked)} clusters")
+    picked = pick_clusters(
+        clusters, max_open_prs=max_open_prs, open_count=backlog.open_pr_count
+    )
+    print(f"Will process {len(picked)} clusters")
     if not picked:
         _empty_output()
         return 0

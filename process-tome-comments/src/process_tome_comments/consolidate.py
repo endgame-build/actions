@@ -1,14 +1,11 @@
 """``consolidate`` subcommand: post-merge JSONL update.
 
-Triggered by ``pull_request: closed``. If the closed PR was merged and
-carries any ``tome-comment-id:*`` labels, marks those comments resolved in
+Triggered by ``pull_request: closed``. If the closed PR was merged and carries
+``tome-comment-id:*`` labels, marks those comments resolved in
 ``.tome/comments.jsonl`` on the default branch via a separate bot commit.
 
-Inputs (env):
-
-- ``PR_NUMBER``, ``PR_MERGED``  — from ``github.event.pull_request.{number,merged}``
-- ``APP_TOKEN``, ``APP_SLUG``   — App-minted token + slug
-- ``GITHUB_REPOSITORY``         — owner/repo
+Inputs (env): ``PR_NUMBER``, ``PR_MERGED``, ``APP_TOKEN``, ``APP_SLUG``,
+``GITHUB_REPOSITORY``.
 """
 
 from __future__ import annotations
@@ -16,23 +13,16 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import subprocess
 from pathlib import Path
 
-from .bot_git import (
-    BotIdentity,
-    commit,
-    configure_git_identity,
-    default_branch,
-    gh,
-    push,
-)
+from .bot import BotSession
 from .comments import load_comments, write_comments
 from .gha import error, git, notice, warning
-from .metadata import comment_ids_from_labels
+from .metadata import TOME_PR_LABEL, comment_ids_from_labels
 
 
 def resolve_comments_on_disk(jsonl_path: Path, comment_ids: set[str], *, by: str, at: str) -> int:
-    """Mark the listed comments resolved in ``jsonl_path``. Returns the number changed."""
     comments = load_comments(jsonl_path)
     if not comments:
         return 0
@@ -63,9 +53,9 @@ def main() -> int:
         )
         return 0
 
-    identity = BotIdentity.resolve(token=app_token, app_slug=app_slug)
+    session = BotSession.open(token=app_token, app_slug=app_slug, repo=repo)
 
-    labels_json = gh(["pr", "view", pr_number, "--json", "labels"], identity).stdout
+    labels_json = session.gh(["pr", "view", pr_number, "--json", "labels"]).stdout
     labels = json.loads(labels_json).get("labels", [])
     comment_ids = comment_ids_from_labels(labels)
     if not comment_ids:
@@ -83,33 +73,35 @@ def main() -> int:
 
     now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     n_changed = resolve_comments_on_disk(
-        jsonl_path, set(comment_ids), by=identity.login, at=now
+        jsonl_path, set(comment_ids), by=session.identity.login, at=now
     )
     if n_changed == 0:
         warning("No JSONL changes after transform — comments may already be resolved.")
         return 0
 
-    configure_git_identity(identity)
-    base = default_branch(identity, repo)
+    base = session.default_branch()
 
     git("add", ".tome/comments.jsonl")
-    r = git("diff", "--cached", "--quiet", check=False)
-    if r.returncode == 0:
-        warning("No staged changes after add — unexpected; skipping commit.")
-        return 0
 
     short_ids = ",".join(cid[:8] for cid in comment_ids)
     if len(comment_ids) == 1:
         subject = f"chore(tome): resolve comment {short_ids}"
     else:
         subject = f"chore(tome): resolve {len(comment_ids)} comments ({short_ids})"
-    commit(subject=subject, body=f"Resolved by merge of #{pr_number}.")
+    session.commit(subject=subject, body=f"Resolved by merge of #{pr_number}.")
 
     try:
-        push(identity, repo=repo, refspec=f"HEAD:{base}")
+        session.push(f"HEAD:{base}")
     except Exception as e:
         error(f"push failed: {e}")
         return 1
+
+    # Drop the common label LAST. If this fails, idempotency still holds via
+    # the jsonl flip we just pushed; the orphaned label is cosmetic.
+    try:
+        session.gh(["pr", "edit", pr_number, "--remove-label", TOME_PR_LABEL])
+    except subprocess.CalledProcessError as e:
+        warning(f"could not drop {TOME_PR_LABEL} from PR #{pr_number}: {e.stderr}")
 
     notice(f"Resolved {n_changed} comment(s) on {base}")
     return 0

@@ -5,12 +5,10 @@ Pure helpers. No domain logic. Imported by every subcommand.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 
 def gha_output(key: str, value: str) -> None:
@@ -54,16 +52,6 @@ def run(
         cwd=cwd,
         input=stdin,
     )
-
-
-def gh_json(args: list[str], default: Any = None, *, token: str | None = None) -> Any:
-    """Run ``gh <args>`` and parse stdout as JSON. Returns ``default`` on error."""
-    env = {"GH_TOKEN": token} if token else None
-    try:
-        r = run(["gh", *args], env=env)
-        return json.loads(r.stdout)
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
-        return default
 
 
 def git(*args: str, check: bool = True, capture: bool = True) -> subprocess.CompletedProcess[str]:
