@@ -11,7 +11,7 @@ Reusable workflow that converts unresolved comments in a repo's `.tome/comments.
 | Workflow input | `max_open_prs` — hard cap on open tome-comment PRs (0 = use upstream default `10`). |
 | Org secret | `OLLAMA_API_KEY` — for the pi agent invocation against Ollama Cloud. |
 | Org secret | `TOME_COMMENTS_APP_ID`, `TOME_COMMENTS_APP_PRIVATE_KEY` — for the `tome-comments[bot]` App that pushes and opens PRs. |
-| Repo variable (optional) | `AUTOFIX_MODEL` — Ollama Cloud model id. Defaults to `gpt-oss:120b`. |
+| Repo variable (optional) | `TOME_COMMENTS_AUTOFIX_MODEL` — Ollama Cloud model id. Defaults to `gpt-oss:120b`. |
 
 ## Triggers (set in the per-repo wrapper)
 

@@ -156,7 +156,7 @@ jobs:
           # restricts filesystem + network at the kernel level — see
           # process-tome-comments/profiles/pi.json.
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
-          AUTOFIX_MODEL: ${{ vars.AUTOFIX_MODEL || 'gpt-oss:120b' }}
+          AUTOFIX_MODEL: ${{ vars.TOME_COMMENTS_AUTOFIX_MODEL || 'gpt-oss:120b' }}
           MATRIX_IDX: ${{ matrix.idx }}
           # Disable pi's startup network operations (update checks, telemetry).
           # The nono profile only allows egress to ollama.com.
