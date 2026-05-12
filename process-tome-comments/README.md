@@ -55,26 +55,26 @@ PR diffs themselves never touch `.tome/`. Closed-but-not-merged PRs are not proc
 
 ```
 process-tome-comments/
+├── CONTEXT.md                      # domain vocabulary (Comment, Cluster, prelude, modes, …)
 ├── README.md                       # this spec
-├── prompt/
-│   └── prelude.md                  # standing agent instructions (inlined verbatim into each prompt)
-├── schema/
-│   └── pr-metadata.schema.json     # documents the expected agent output shape (validated post-hoc by snapshot_and_pr.py)
-├── profiles/
-│   └── pi.json                     # nono profile: workdir + ~/.pi r+w, network to ollama.com only
-├── scripts/                        # Python 3.11+, stdlib only
-│   ├── _common.py                  # shared helpers (subprocess wrappers, Comment/Cluster types)
-│   ├── prepare_clusters.py         # filter + cluster + slot budget + emit matrix
-│   ├── restore_cluster.py          # rebuild cluster JSON on each matrix runner
-│   ├── build_cluster_prompt.py     # concatenate prelude + cluster context
-│   ├── configure_pi.py             # write .pi/settings.json + install block-bash extension
-│   ├── run_agent.py                # invoke pi -p --mode json; extract last assistant text
-│   ├── snapshot_and_pr.py          # parse JSON, branch/commit/push, open PR
-│   └── consolidate.py              # post-merge JSONL update
+├── prompt/prelude.md               # standing agent instructions (inlined verbatim into each prompt)
+├── schema/pr-metadata.schema.json  # documents the agent's JSON output shape
+├── profiles/pi.json                # nono profile: workdir + ~/.pi r+w, network to ollama.com only
+├── src/process_tome_comments/      # Python 3.11+, stdlib only
+│   ├── __main__.py                 # subcommand dispatcher (`python -m process_tome_comments <name>`)
+│   ├── comments.py                 # Comment + Cluster types, JSONL I/O, clustering, sanitization
+│   ├── metadata.py                 # PR-metadata JSON extraction + validation (pure)
+│   ├── bot_git.py                  # App-bot identity, credential-baked push, gh wrapper
+│   ├── policy.py                   # disallowed-path regex
+│   ├── gha.py                      # GitHub Actions glue (outputs, log levels, subprocess)
+│   ├── prepare.py                  # `prepare` subcommand
+│   ├── agent.py                    # `agent` subcommand: configure pi + build prompt + invoke + capture
+│   ├── pr_open.py                  # `pr-open` subcommand
+│   └── consolidate.py              # `consolidate` subcommand
 └── wrapper.example.yml             # per-repo workflow file (copy verbatim, ~25 lines)
 
-.github/workflows/
-└── process-tome-comments.yml       # the reusable workflow
+tome-comments-setup/action.yml      # composite action: mint App token + dual checkout
+.github/workflows/process-tome-comments.yml  # the reusable workflow
 ```
 
 ## Out of scope (v1)

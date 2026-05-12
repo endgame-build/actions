@@ -3,23 +3,19 @@
 # Reusable workflow consumed by adopting repos via:
 #   uses: endgame-build/actions/.github/workflows/process-tome-comments.yml@v1
 #
-# Two modes, dispatched by `inputs.mode` (auto-derived from event):
-#   process     — load unresolved comments from .tome/comments.jsonl, cluster
-#                 by (filePath, blockIndex), invoke the agent per cluster,
+# Two modes, dispatched by `inputs.mode` (auto-derived from event in the wrapper):
+#   process     — load unresolved comments, cluster by (filePath, blockIndex),
 #                 open one PR per cluster, capped at max_open_prs.
 #   consolidate — listener for pull_request:closed. If the PR was merged and
 #                 carried tome-comment-id labels, mark those comments resolved
-#                 in .tome/comments.jsonl on the default branch.
+#                 on the default branch.
 #
 # Required secrets (caller passes via `secrets: inherit`):
-#   CLAUDE_CODE_OAUTH_TOKEN     — Claude Code OAuth (org-level)
-#   TOME_COMMENTS_APP_ID        — tome-comments[bot] App ID
-#   TOME_COMMENTS_APP_PRIVATE_KEY — App's private key (PEM)
+#   TOME_COMMENTS_APP_ID, TOME_COMMENTS_APP_PRIVATE_KEY — `tome-comments[bot]` App
+#   OLLAMA_API_KEY                                     — Ollama Cloud key
 #
-# Per-repo onboarding (one-time):
-#   1. Install the tome-comments[bot] App on the repo
-#   2. Confirm CLAUDE_CODE_OAUTH_TOKEN is visible to the repo
-#   3. Add the wrapper file from process-tome-comments/wrapper.example.yml
+# See process-tome-comments/CONTEXT.md for vocabulary.
+# See process-tome-comments/README.md for the spec.
 
 name: Process Tome Comments
 
@@ -40,8 +36,8 @@ permissions:
   contents: read
 
 env:
-  AUTOFIX_BOT_LOGIN: tome-comments[bot]
   EFFECTIVE_MAX_OPEN_PRS: ${{ inputs.max_open_prs == 0 && 10 || inputs.max_open_prs }}
+  PYTHONPATH: .actions/process-tome-comments/src
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
@@ -72,13 +68,13 @@ jobs:
             process-tome-comments
 
       - name: Skip if our own consolidate commit
-        # Q6 redundancy mitigation: a push triggered by our own bot's
-        # consolidate commit would re-process needlessly. Bail cleanly.
+        # A push triggered by tome-comments[bot]'s own consolidate commit
+        # would re-process needlessly. Bail cleanly.
         if: |
           github.event_name == 'push' &&
           github.event.head_commit.author.username == 'tome-comments[bot]'
         run: |
-          echo "::notice::Tip commit is from tome-comments[bot]; skipping process."
+          echo "::notice::Tip commit is from tome-comments[bot]; skipping."
           {
             echo "matrix={\"include\":[]}"
             echo "has_clusters=false"
@@ -90,7 +86,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MAX_OPEN_PRS: ${{ env.EFFECTIVE_MAX_OPEN_PRS }}
-        run: python3 .actions/process-tome-comments/scripts/prepare_clusters.py
+        run: python3 -m process_tome_comments prepare
+
+      - name: Upload cluster artifact
+        if: steps.prep.outputs.has_clusters == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tome-clusters-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/clusters/
+          retention-days: 1
+          if-no-files-found: error
 
   process:
     needs: prepare
@@ -106,66 +111,18 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Mint App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
+      - name: Setup
+        id: setup
+        uses: endgame-build/actions/tome-comments-setup@v1
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
-          private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+          app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
 
-      - name: Resolve App bot identity
-        id: bot
-        env:
-          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          LOGIN="${APP_SLUG}[bot]"
-          if [[ "$LOGIN" != "$AUTOFIX_BOT_LOGIN" ]]; then
-            echo "::error::App login '$LOGIN' != expected '$AUTOFIX_BOT_LOGIN'. Update env.AUTOFIX_BOT_LOGIN or rename the App."
-            exit 1
-          fi
-          ID=$(gh api "users/${LOGIN}" --jq .id)
-          {
-            echo "login=$LOGIN"
-            echo "email=${ID}+${LOGIN}@users.noreply.github.com"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Checkout consumer repo (App token, fresh main)
-        uses: actions/checkout@v4
+      - name: Download cluster artifact
+        uses: actions/download-artifact@v4
         with:
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 1
-
-      - name: Checkout actions repo (sparse)
-        uses: actions/checkout@v4
-        with:
-          repository: endgame-build/actions
-          path: .actions
-          ref: ${{ github.action_ref || 'main' }}
-          sparse-checkout: |
-            process-tome-comments
-
-      - name: Restore cluster JSON
-        # The matrix value carries idx; each matrix item runs on a fresh
-        # runner, so we re-derive the cluster JSON from the JSONL using the
-        # comment IDs encoded in the matrix.
-        env:
-          IDS_CSV: ${{ matrix.comment_ids_csv }}
-          FILE_PATH: ${{ matrix.file_path }}
-          BLOCK_INDEX: ${{ matrix.block_index }}
-          IDX: ${{ matrix.idx }}
-        run: python3 .actions/process-tome-comments/scripts/restore_cluster.py
-
-      - name: Build per-cluster prompt
-        env:
-          CLUSTER_FILE: ${{ runner.temp }}/clusters/${{ matrix.idx }}.json
-          PRELUDE_FILE: .actions/process-tome-comments/prompt/prelude.md
-        run: |
-          set -euo pipefail
-          python3 .actions/process-tome-comments/scripts/build_cluster_prompt.py \
-            > "${RUNNER_TEMP}/cluster-prompt.md"
-          echo "Prompt size: $(wc -c < "${RUNNER_TEMP}/cluster-prompt.md") bytes"
+          name: tome-clusters-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/clusters/
 
       - name: Setup Node.js (for pi-coding-agent)
         uses: actions/setup-node@v4
@@ -186,41 +143,34 @@ jobs:
           sudo dpkg -i /tmp/nono.deb
           nono --version
 
-      - name: Configure pi for Ollama Cloud
-        env:
-          AUTOFIX_MODEL: ${{ vars.AUTOFIX_MODEL || 'gpt-oss:120b' }}
-        run: python3 .actions/process-tome-comments/scripts/configure_pi.py
-
       - name: Mask Ollama API key
         env:
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: echo "::add-mask::$OLLAMA_API_KEY"
 
-      - name: Run pi (apply edit + emit JSON metadata)
+      - name: Run agent
         id: agent
         env:
-          # Only OLLAMA_API_KEY is exposed to the agent. The App token is
+          # Only the model API key is exposed to the agent. The App token is
           # set in the next step's env, NOT here. The nono sandbox additionally
           # restricts filesystem + network at the kernel level — see
           # process-tome-comments/profiles/pi.json.
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
           AUTOFIX_MODEL: ${{ vars.AUTOFIX_MODEL || 'gpt-oss:120b' }}
-          # Disable pi's startup network operations (update checks, telemetry,
-          # package update checks). The nono profile only allows egress to
-          # ollama.com, so these would be silently denied — pre-empting them
-          # avoids the noise.
+          MATRIX_IDX: ${{ matrix.idx }}
+          # Disable pi's startup network operations (update checks, telemetry).
+          # The nono profile only allows egress to ollama.com.
           PI_OFFLINE: '1'
-        run: python3 .actions/process-tome-comments/scripts/run_agent.py
-        # Outputs: agent_output_path (path to last assistant text)
+        run: python3 -m process_tome_comments agent
 
-      - name: Snapshot diff and open PR
+      - name: Open PR
         env:
           AGENT_OUTPUT_PATH: ${{ steps.agent.outputs.agent_output_path }}
-          CLUSTER_FILE: ${{ runner.temp }}/clusters/${{ matrix.idx }}.json
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          BOT_LOGIN: ${{ steps.bot.outputs.login }}
-          BOT_EMAIL: ${{ steps.bot.outputs.email }}
-        run: python3 .actions/process-tome-comments/scripts/snapshot_and_pr.py
+          MATRIX_IDX: ${{ matrix.idx }}
+          APP_TOKEN: ${{ steps.setup.outputs.app-token }}
+          APP_SLUG: ${{ steps.setup.outputs.app-slug }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m process_tome_comments pr-open
 
   # ─────────────────────────────────────────────────────────────────────────
   # CONSOLIDATE MODE
@@ -237,51 +187,18 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Mint App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
+      - name: Setup
+        id: setup
+        uses: endgame-build/actions/tome-comments-setup@v1
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
-          private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
-
-      - name: Resolve App bot identity
-        id: bot
-        env:
-          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          LOGIN="${APP_SLUG}[bot]"
-          if [[ "$LOGIN" != "$AUTOFIX_BOT_LOGIN" ]]; then
-            echo "::error::App login '$LOGIN' != expected '$AUTOFIX_BOT_LOGIN'."
-            exit 1
-          fi
-          ID=$(gh api "users/${LOGIN}" --jq .id)
-          {
-            echo "login=$LOGIN"
-            echo "email=${ID}+${LOGIN}@users.noreply.github.com"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Checkout consumer repo
-        uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 1
-
-      - name: Checkout actions repo (sparse)
-        uses: actions/checkout@v4
-        with:
-          repository: endgame-build/actions
-          path: .actions
-          ref: ${{ github.action_ref || 'main' }}
-          sparse-checkout: |
-            process-tome-comments
+          app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
 
       - name: Update JSONL on default branch
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_MERGED: ${{ github.event.pull_request.merged }}
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          BOT_LOGIN: ${{ steps.bot.outputs.login }}
-          BOT_EMAIL: ${{ steps.bot.outputs.email }}
-        run: python3 .actions/process-tome-comments/scripts/consolidate.py
+          APP_TOKEN: ${{ steps.setup.outputs.app-token }}
+          APP_SLUG: ${{ steps.setup.outputs.app-slug }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m process_tome_comments consolidate
