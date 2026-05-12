@@ -52,17 +52,7 @@ def main() -> int:
     settings_path = pi_dir / "settings.json"
     settings_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-    # Install the block-bash extension. Pi's tool surface is read/write/edit/bash
-    # by default; we own git+gh, so the agent must not have bash. The extension
-    # is sparse-checked-out under .actions/process-tome-comments/extensions/.
-    ext_src = Path(".actions/process-tome-comments/extensions/block-bash.ts")
-    ext_dir = pi_dir / "extensions"
-    ext_dir.mkdir(exist_ok=True)
-    ext_dst = ext_dir / "block-bash.ts"
-    ext_dst.write_text(ext_src.read_text(encoding="utf-8"), encoding="utf-8")
-
     print(f"Wrote {settings_path} pinning provider=ollama-cloud model={model_id}")
-    print(f"Installed extension {ext_dst} (blocks the bash tool)")
     return 0
 
 

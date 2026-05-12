@@ -188,7 +188,13 @@ jobs:
       - name: Run pi (apply edit + emit JSON metadata)
         id: agent
         env:
+          # Only OLLAMA_API_KEY is exposed to the agent. The App token is
+          # set in the next step's env, NOT here — so the agent can't call
+          # GitHub APIs or push branches even though `bash` is available.
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          # Optional defense-in-depth: set TOME_COMMENTS_SANDBOX=nono on the
+          # consumer repo (as a repo variable) to wrap pi in `nono run`.
+          TOME_COMMENTS_SANDBOX: ${{ vars.TOME_COMMENTS_SANDBOX }}
         run: python3 .actions/process-tome-comments/scripts/run_agent.py
         # Outputs: agent_output_path (path to last assistant text)
 

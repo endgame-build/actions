@@ -43,8 +43,17 @@ def main() -> int:
     # pi -p (--print) prints the final response and exits. --mode json emits
     # the event stream so we can robustly parse the last assistant message
     # without depending on stdout formatting.
+    cmd = ["pi", "-p", "--mode", "json", prompt]
+
+    # Optional sandboxing layer. When TOME_COMMENTS_SANDBOX=nono, prepend
+    # `nono run --allow $GITHUB_WORKSPACE --` so pi can only write under
+    # the workspace and reach the configured network endpoints.
+    if os.environ.get("TOME_COMMENTS_SANDBOX") == "nono":
+        workspace = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
+        cmd = ["nono", "run", "--allow", workspace, "--", *cmd]
+
     proc = subprocess.run(
-        ["pi", "-p", "--mode", "json", prompt],
+        cmd,
         capture_output=True,
         text=True,
         check=False,
