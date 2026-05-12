@@ -18,9 +18,20 @@
   },
   "network": {
     "block": false,
+    "network_profile": "minimal",
     "allow_domain": ["ollama.com"]
   },
   "environment": {
-    "allow_vars": ["OLLAMA_API_KEY", "AUTOFIX_MODEL", "PI_OFFLINE", "GITHUB_WORKSPACE", "RUNNER_TEMP", "HOME", "PATH"]
+    "allow_vars": [
+      "OLLAMA_API_KEY",
+      "AUTOFIX_MODEL",
+      "PI_OFFLINE",
+      "GITHUB_WORKSPACE",
+      "RUNNER_TEMP",
+      "HOME",
+      "PATH",
+      "SSL_CERT_FILE",
+      "NIX_SSL_CERT_FILE"
+    ]
   }
 }

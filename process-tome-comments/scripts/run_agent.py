@@ -53,11 +53,18 @@ def main() -> int:
         print(f"::error::nono profile not found at {profile_path}", file=sys.stderr)
         return 1
 
+    # Pass --provider/--model explicitly. The project-local .pi/settings.json
+    # also pins these, but CLI flags are the most predictable override and
+    # neutralize any global pi config the runner may have.
+    model_id = os.environ.get("AUTOFIX_MODEL", "gpt-oss:120b")
     cmd = [
         "nono", "run",
         "--profile", str(profile_path),
         "--",
-        "pi", "-p", "--mode", "json", prompt,
+        "pi", "-p", "--mode", "json",
+        "--provider", "ollama-cloud",
+        "--model", f"ollama-cloud/{model_id}",
+        prompt,
     ]
 
     proc = subprocess.run(

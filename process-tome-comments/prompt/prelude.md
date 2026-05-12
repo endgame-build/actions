@@ -13,7 +13,9 @@ Both are mandatory; the JSON output is enforced by `--json-schema`.
 1. Read the cluster of comments from `.tome/comments.jsonl`. The cluster's comment IDs are provided in the prompt as `CLUSTER_COMMENT_IDS`. Each cluster member shares the same `filePath` and `blockIndex`.
 2. Read the source file at the cluster's `filePath`.
 3. Identify the change(s) the comments collectively request. If multiple comments touch the same block, produce a single coherent edit that addresses all of them. Apply edits in arrival order (earliest `createdAt` first) when their requests stack.
-4. Apply the change(s) using the `Edit` or `Write` tool. Be thorough: if a comment says "rename X to Y everywhere", apply it to every occurrence in the file.
+4. Apply the change(s) using the `edit` or `write` tool. Be thorough: if a comment says "rename X to Y everywhere", apply it to every occurrence in the file.
+
+**Tool semantics:** the `edit` tool requires each `oldText` to occur exactly once in the file — include enough surrounding context to disambiguate. For a "rename X to Y everywhere" comment with multiple occurrences, either: (a) call `edit` once per occurrence with a unique surrounding-context oldText, or (b) call `write` to rewrite the whole file. Prefer (a) for small files; (b) for sweeping changes that touch many lines.
 
 ### ACTION B — Emit the PR metadata JSON
 

@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Write a project-local pi config that points at Ollama Cloud.
+"""Write the pi provider config so pi can talk to Ollama Cloud.
 
-The config goes to `.pi/settings.json` in the cwd (which is the consumer
-repo's working tree). pi reads this config in addition to the global
-`~/.pi/agent/settings.json`.
+Per pi's docs (docs/models.md), custom providers (Ollama, vLLM, etc.) are
+registered via `~/.pi/agent/models.json`. There is no project-local
+equivalent for custom-provider registration in pi v0.74; settings.json
+under `.pi/` accepts a handful of overrides but not the `providers` map.
+
+We write this file from outside the sandbox so it's already in place
+when nono+pi start. The nono profile allows `$HOME/.pi` (recursive).
 
 Inputs (env):
     AUTOFIX_MODEL - the Ollama Cloud model id (e.g. 'gpt-oss:120b'). Defaults
                     to 'gpt-oss:120b'.
+    HOME          - resolved from env to locate ~/.pi/agent/.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ DEFAULT_MODEL = "gpt-oss:120b"
 def main() -> int:
     model_id = os.environ.get("AUTOFIX_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL
 
-    config = {
+    models_config = {
         "providers": {
             "ollama-cloud": {
                 "name": "Ollama Cloud",
@@ -42,16 +47,26 @@ def main() -> int:
                 ],
             },
         },
-        "defaults": {
-            "model": f"ollama-cloud/{model_id}",
-        },
     }
 
-    pi_dir = Path(".pi")
-    pi_dir.mkdir(exist_ok=True)
-    settings_path = pi_dir / "settings.json"
-    settings_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    pi_agent_dir = Path(os.environ.get("HOME", "~")).expanduser() / ".pi" / "agent"
+    pi_agent_dir.mkdir(parents=True, exist_ok=True)
+    models_path = pi_agent_dir / "models.json"
+    models_path.write_text(json.dumps(models_config, indent=2), encoding="utf-8")
 
+    # Also write a minimal settings.json. The `enabledModels` allowlist gates
+    # which models pi will use; without our model in it, pi may refuse even
+    # with --model flag. defaultProvider/defaultModel set the fallback if the
+    # CLI flags are ever omitted.
+    settings_config = {
+        "defaultProvider": "ollama-cloud",
+        "defaultModel": model_id,
+        "enabledModels": [f"ollama-cloud/{model_id}"],
+    }
+    settings_path = pi_agent_dir / "settings.json"
+    settings_path.write_text(json.dumps(settings_config, indent=2), encoding="utf-8")
+
+    print(f"Wrote {models_path} (ollama-cloud provider registration)")
     print(f"Wrote {settings_path} pinning provider=ollama-cloud model={model_id}")
     return 0
 
