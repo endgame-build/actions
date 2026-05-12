@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Validate the agent's structured output, snapshot the diff, branch, push, open PR.
+
+Inputs (env):
+    STRUCTURED_OUTPUT - JSON string from claude-code-base-action's structured_output
+    CLUSTER_FILE      - path to the cluster JSON (for fallback metadata)
+    APP_TOKEN         - tome-comments[bot] App token (for git push + gh)
+    BOT_LOGIN         - "tome-comments[bot]" or whatever the App slug resolves to
+    BOT_EMAIL         - <id>+<login>@users.noreply.github.com
+    GITHUB_REPOSITORY - owner/repo (provided by GHA)
+
+Exit codes:
+    0 - PR opened OR empty diff (nothing to do, not a failure)
+    1 - validation failed (Class A) - caller should log and continue
+    2 - infrastructure error (push, gh) - matrix item fails; others proceed
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+from _common import error, git, gh_json, notice, run, sanitize_claude_mention, warning
+
+
+DISALLOWED_PATH_RE = re.compile(r"^(\.github/|\.tome/comments\.jsonl$|Taskfile\.yml$|scripts/)")
+
+
+def fail(msg: str, *, code: int = 1) -> None:
+    error(msg)
+    sys.exit(code)
+
+
+def validate_metadata(raw: str) -> dict[str, object]:
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        fail(f"Agent emitted invalid JSON: {e}")
+    if not isinstance(data, dict):
+        fail("Agent output is not a JSON object")
+    title = data.get("title")
+    body = data.get("body")
+    ids = data.get("addresses_comment_ids")
+    if not isinstance(title, str) or not title:
+        fail("Agent JSON missing or empty 'title'")
+    if not isinstance(body, str) or not body:
+        fail("Agent JSON missing or empty 'body'")
+    if not isinstance(ids, list) or not ids:
+        fail("Agent JSON missing or empty 'addresses_comment_ids'")
+    for cid in ids:
+        if not isinstance(cid, str):
+            fail("addresses_comment_ids contains non-string item")
+    return {"title": title, "body": body, "addresses_comment_ids": ids}
+
+
+def working_tree_has_changes() -> bool:
+    git("add", "-A")
+    r = git("diff", "--cached", "--quiet", check=False)
+    return r.returncode != 0
+
+
+def staged_disallowed_paths() -> list[str]:
+    r = git("diff", "--cached", "--name-only")
+    return [
+        p for p in r.stdout.strip().splitlines() if DISALLOWED_PATH_RE.match(p)
+    ]
+
+
+def repo_default_branch(token: str, repo: str) -> str:
+    r = run(["gh", "api", f"repos/{repo}", "--jq", ".default_branch"],
+            env={"GH_TOKEN": token})
+    return r.stdout.strip()
+
+
+def main() -> int:
+    structured_output = os.environ["STRUCTURED_OUTPUT"]
+    cluster_file = Path(os.environ["CLUSTER_FILE"])
+    app_token = os.environ["APP_TOKEN"]
+    bot_login = os.environ["BOT_LOGIN"]
+    bot_email = os.environ["BOT_EMAIL"]
+    repo = os.environ["GITHUB_REPOSITORY"]
+
+    cluster = json.loads(cluster_file.read_text(encoding="utf-8"))
+
+    # Validate + sanitize
+    meta = validate_metadata(structured_output)
+    title = sanitize_claude_mention(meta["title"])  # type: ignore[arg-type]
+    if len(title) > 70:
+        warning("Agent title >70 chars; truncating")
+        title = title[:70]
+    body = sanitize_claude_mention(meta["body"])  # type: ignore[arg-type]
+    ids: list[str] = meta["addresses_comment_ids"]  # type: ignore[assignment]
+
+    # Working-tree check
+    if not working_tree_has_changes():
+        warning("Empty diff for cluster; agent decided no edit needed. "
+                "Comment(s) remain unresolved.")
+        return 0
+
+    # Disallowed paths
+    bad = staged_disallowed_paths()
+    if bad:
+        error("Agent modified disallowed paths; aborting cluster:")
+        for p in bad:
+            print(f"  {p}", file=sys.stderr)
+        git("checkout", "--", ".")
+        sys.exit(1)
+
+    # Branch, commit, push
+    latest_id = cluster["latest_id"]
+    branch = f"tome-comment/{latest_id}"
+
+    git("config", "user.name", bot_login)
+    git("config", "user.email", bot_email)
+    git("checkout", "-b", branch)
+    git("commit", "-m", title, "-m", body)
+
+    push_url = f"https://x-access-token:{app_token}@github.com/{repo}.git"
+    try:
+        run(["git", "push", push_url, f"HEAD:refs/heads/{branch}"])
+    except subprocess.CalledProcessError as e:
+        error(f"git push failed: {e.stderr}")
+        sys.exit(2)
+
+    # Open PR with labels and reviewers
+    labels = ",".join(f"tome-comment-id:{cid}" for cid in ids)
+    reviewers = ",".join(
+        sorted({c["authorLogin"] for c in cluster["comments"]})
+    )
+    base = repo_default_branch(app_token, repo)
+
+    try:
+        run(
+            [
+                "gh", "pr", "create",
+                "--base", base,
+                "--head", branch,
+                "--title", title,
+                "--body", body,
+                "--label", labels,
+                "--reviewer", reviewers,
+            ],
+            env={"GH_TOKEN": app_token},
+        )
+    except subprocess.CalledProcessError as e:
+        error(f"gh pr create failed: {e.stderr}")
+        sys.exit(2)
+
+    notice(f"Opened PR for cluster {latest_id} (labels: {labels}, reviewers: {reviewers})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

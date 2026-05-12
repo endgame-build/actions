@@ -1,0 +1,44 @@
+# Per-repo wrapper for process-tome-comments.
+# Copy this file to `.github/workflows/process-tome-comments.yml` in any repo
+# that wants to automate Tome review comments via PRs.
+#
+# One-time setup per consumer repo (see process-tome-comments/README.md):
+#   1. Install the tome-comments[bot] GitHub App on this repo.
+#   2. Confirm CLAUDE_CODE_OAUTH_TOKEN org secret is visible to this repo.
+#   3. Confirm TOME_COMMENTS_APP_ID and TOME_COMMENTS_APP_PRIVATE_KEY org
+#      secrets are visible to this repo.
+#
+# Updates: change `@v1` below to the desired version (or leave on `@v1` to
+# float through the major-version tag).
+
+name: Process Tome Comments
+
+on:
+  push:
+    branches: [main]
+    paths: ['.tome/comments.jsonl']
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      max_open_prs:
+        description: 'Hard cap on open tome-comment PRs (0 = use upstream default of 10)'
+        type: number
+        required: false
+        default: 0
+
+concurrency:
+  group: tome-comments-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    uses: endgame-build/actions/.github/workflows/process-tome-comments.yml@v1
+    with:
+      mode: ${{ (github.event_name == 'pull_request' && 'consolidate') || 'process' }}
+      max_open_prs: ${{ inputs.max_open_prs || 0 }}
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    secrets: inherit
