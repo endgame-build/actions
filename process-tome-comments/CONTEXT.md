@@ -14,11 +14,11 @@ Domain vocabulary for the `process-tome-comments` reusable workflow. Use these t
 
 **PR plan** — the validated, sanitised, ready-to-submit PR shape derived from a cluster + the agent's raw assistant text. Defined in `pr_plan.py:PRPlan`. Pure: `PRPlan.build(cluster, agent_text)` parses the PR metadata, sanitises the `@claude` mention, truncates the title to 70 chars, derives labels from comment ids, and derives reviewers from cluster authors. The submission step consumes a `PRPlan` and does I/O only — it never re-derives these fields.
 
-**Idempotency filter** — the pre-cluster check that drops any comment whose `id` already has an associated PR (any state). Prevents re-processing comments that have been handled, and prevents looping on comments the reviewer chose to close without merging (Q2 safety net). Implemented via `TomeBacklog`: a single `gh pr list` call returns every tome-PR's labels, the comment ids are extracted from `tome-comment-id:<uuid>` labels, and the filter becomes an in-memory set lookup.
+**Idempotency filter** — the pre-cluster check that drops any comment whose `id` already has an associated PR (any state). Prevents re-processing comments that have been handled, and prevents looping on comments the reviewer chose to close without merging (Q2 safety net). Implemented via `TomeBacklog`: a single `gh pr list` call returns every tome-PR's labels, the comment ids are extracted from `tome-cid:<uuid>` labels, and the filter becomes an in-memory set lookup.
 
-**Tome backlog** — snapshot of the repo's current tome-PR state, built once per `prepare` invocation. Defined in `backlog.py:TomeBacklog`. Carries the set of comment ids ever addressed (from `tome-comment-id:*` labels across all states) and the count of currently-open tome-PRs. Answers both questions `prepare` asks the GitHub API today (idempotency + slot budget) from one fetch. The single fetch is enabled by the **common tome-PR label** below.
+**Tome backlog** — snapshot of the repo's current tome-PR state, built once per `prepare` invocation. Defined in `backlog.py:TomeBacklog`. Carries the set of comment ids ever addressed (from `tome-cid:*` labels across all states) and the count of currently-open tome-PRs. Answers both questions `prepare` asks the GitHub API today (idempotency + slot budget) from one fetch. The single fetch is enabled by the **common tome-PR label** below.
 
-**`auto:tome-comment-pr`** — the common label applied to every tome-PR at open time. Enables the single `label:"auto:tome-comment-pr"` search that powers `TomeBacklog`. `consolidate` removes this label after a successful post-merge push so the scan stays bounded by closed-without-merge volume rather than total lifetime tome-PRs. The per-id `tome-comment-id:*` labels stay forever — they encode which comment ids each PR addressed and are still needed by `consolidate` for the label-to-ids decode.
+**`auto:tome-comment-pr`** — the common label applied to every tome-PR at open time. Enables the single `label:"auto:tome-comment-pr"` search that powers `TomeBacklog`. `consolidate` removes this label after a successful post-merge push so the scan stays bounded by closed-without-merge volume rather than total lifetime tome-PRs. The per-id `tome-cid:*` labels stay forever — they encode which comment ids each PR addressed and are still needed by `consolidate` for the label-to-ids decode.
 
 **Disallowed paths** — paths the agent must not modify. Currently `.github/`, `.tome/comments.jsonl`, `Taskfile.yml`, and `scripts/`. Enforced post-edit by `policy.py:policy_violations`, which runs `git diff --cached --name-only` and returns any matching paths. If non-empty, the cluster is aborted and the working tree restored.
 
@@ -32,7 +32,7 @@ The reusable workflow runs in one of two modes, dispatched by the wrapper's `inp
 
 **Process mode** — entered on `push` (to `.tome/comments.jsonl`) and `workflow_dispatch`. Loads unresolved comments, applies the idempotency filter, clusters them, computes the slot budget, and opens one PR per cluster (up to `max_open_prs`).
 
-**Consolidate mode** — entered on `pull_request: closed`. If the closed PR was merged and carries `tome-comment-id:*` labels, marks those comments `isResolved: true` in `.tome/comments.jsonl` on the default branch via a separate bot commit. PR diffs themselves never touch `.tome/`.
+**Consolidate mode** — entered on `pull_request: closed`. If the closed PR was merged and carries `tome-cid:*` labels, marks those comments `isResolved: true` in `.tome/comments.jsonl` on the default branch via a separate bot commit. PR diffs themselves never touch `.tome/`.
 
 ## Identities
 

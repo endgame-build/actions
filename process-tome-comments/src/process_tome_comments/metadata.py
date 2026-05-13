@@ -96,7 +96,9 @@ def validate_metadata(raw: str) -> Metadata:
 
 
 # Comment-label prefix used to associate PRs with the comments they address.
-COMMENT_LABEL_PREFIX = "tome-comment-id:"
+# Kept short so `<prefix><uuid>` stays under GitHub's 50-char label cap
+# (9 + 36 = 45).
+COMMENT_LABEL_PREFIX = "tome-cid:"
 
 # Common label applied to every tome-PR. Enables a single `label:` search to
 # enumerate the backlog; removed by `consolidate` after a successful merge so

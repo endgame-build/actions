@@ -1,7 +1,7 @@
 """``consolidate`` subcommand: post-merge JSONL update.
 
 Triggered by ``pull_request: closed``. If the closed PR was merged and carries
-``tome-comment-id:*`` labels, marks those comments resolved in
+``tome-cid:*`` labels, marks those comments resolved in
 ``.tome/comments.jsonl`` on the default branch via a separate bot commit.
 
 Inputs (env): ``PR_NUMBER``, ``PR_MERGED``, ``APP_TOKEN``, ``APP_SLUG``,
@@ -59,7 +59,7 @@ def main() -> int:
     labels = json.loads(labels_json).get("labels", [])
     comment_ids = comment_ids_from_labels(labels)
     if not comment_ids:
-        print(f"PR #{pr_number} has no tome-comment-id labels; not a tome PR.")
+        print(f"PR #{pr_number} has no tome-cid labels; not a tome PR.")
         return 0
 
     print(f"Resolving comment(s) on merge of PR #{pr_number}:")

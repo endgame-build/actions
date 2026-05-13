@@ -26,7 +26,7 @@ A `concurrency` group `tome-comments-${{ github.repository }}` serializes all ru
 ## Behavior — `process` mode
 
 1. **Fetch backlog.** One `gh pr list --search 'label:"auto:tome-comment-pr"' --state all` call returns every tome-PR with its labels and state (`TomeBacklog`).
-2. **Filter.** Load `.tome/comments.jsonl`; drop comments where `isResolved == true`, or where the backlog already contains the comment's id (from a `tome-comment-id:<uuid>` label on any tome-PR).
+2. **Filter.** Load `.tome/comments.jsonl`; drop comments where `isResolved == true`, or where the backlog already contains the comment's id (from a `tome-cid:<uuid>` label on any tome-PR).
 3. **Cluster.** Group remaining comments by `(filePath, blockIndex)`. One PR per cluster.
 4. **Slot budget.** `open_count` comes from the backlog (PRs in state `OPEN`). Slots = `max_open_prs − open_count`. Take the oldest `slots` clusters by earliest member's `createdAt`.
 5. **Per cluster, in a matrix step (max-parallel: 1):**
@@ -35,17 +35,17 @@ A `concurrency` group `tome-comments-${{ github.repository }}` serializes all ru
    - Run [pi](https://pi.dev/) against Ollama Cloud (provider configured via `.pi/settings.json`, written at runtime by `configure_pi.py`). The agent runs inside [nono](https://nono.sh/) with the profile at `profiles/pi.json` — filesystem confined to the working tree + `~/.pi`, network confined to `ollama.com`, only `OLLAMA_API_KEY` passed through. The App token is **not** in the agent step's env (it's only in the snapshot step), so a hostile git/gh invocation can't reach GitHub even if it bypassed the sandbox. Pi has no native schema enforcement, so the prompt asks for a JSON object matching `schema/pr-metadata.schema.json` and `snapshot_and_pr.py` post-hoc extracts the first balanced `{…}` from the agent's final message and validates it.
    - Validate: JSON conforms; staged diff is non-empty; no disallowed paths touched (`.github/`, `.tome/comments.jsonl`, `Taskfile.yml`, `scripts/`); strip `@claude` → `@-claude` from title/body.
    - Branch as `tome-comment/<latest-comment-uuid>`, commit with the agent's title as subject, push via the App token.
-   - Open PR with labels `auto:tome-comment-pr` (common) + `tome-comment-id:<uuid>` (one per addressed comment) and reviewers = union of comment authors.
+   - Open PR with labels `auto:tome-comment-pr` (common) + `tome-cid:<uuid>` (one per addressed comment) and reviewers = union of comment authors.
 
 ## Behavior — `consolidate` mode
 
-Triggered by `pull_request: closed`. If the closed PR is merged AND carries any `tome-comment-id:*` labels:
+Triggered by `pull_request: closed`. If the closed PR is merged AND carries any `tome-cid:*` labels:
 
 1. Update `.tome/comments.jsonl` on the default branch: for each addressed comment, set `isResolved: true`, `resolvedBy: tome-comments[bot]`, `resolvedAt: <now>`.
 2. Push as a separate bot commit (`chore(tome): resolve comment <shortid>`).
-3. After the push succeeds, remove the `auto:tome-comment-pr` label from the PR (best-effort — a failed drop leaves an orphan label but doesn't break idempotency, which now flows through the resolved jsonl entry). Per-id `tome-comment-id:*` labels stay as the historical record and are still what `consolidate` reads to decode which comments to resolve.
+3. After the push succeeds, remove the `auto:tome-comment-pr` label from the PR (best-effort — a failed drop leaves an orphan label but doesn't break idempotency, which now flows through the resolved jsonl entry). Per-id `tome-cid:*` labels stay as the historical record and are still what `consolidate` reads to decode which comments to resolve.
 
-PR diffs themselves never touch `.tome/`. Closed-but-not-merged PRs are not processed (the `tome-comment-id` labels on a closed PR keep the comment in the backlog's `addressed_comment_ids`, preventing re-runs from regenerating the same PR).
+PR diffs themselves never touch `.tome/`. Closed-but-not-merged PRs are not processed (the `tome-cid` labels on a closed PR keep the comment in the backlog's `addressed_comment_ids`, preventing re-runs from regenerating the same PR).
 
 ## Failure handling
 
