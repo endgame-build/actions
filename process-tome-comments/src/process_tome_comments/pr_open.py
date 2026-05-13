@@ -16,7 +16,12 @@ from .pr_plan import PRPlan
 
 
 def working_tree_has_changes() -> bool:
-    git("add", "-A")
+    # `.actions/` is the workflow's sparse checkout of endgame-build/actions —
+    # scaffolding, not the agent's edit. It also has its own `.git`, so a
+    # blanket `git add -A` would record it as a submodule pointer in the bot
+    # commit. Exclude via pathspec so the policy check + commit only see real
+    # agent changes.
+    git("add", "-A", "--", ".", ":!.actions")
     r = git("diff", "--cached", "--quiet", check=False)
     return r.returncode != 0
 
