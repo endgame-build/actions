@@ -27,16 +27,19 @@ on:
         type: string
         required: true
       max_open_prs:
-        description: 'Hard cap on open tome-comment PRs (0 = use upstream default 10)'
-        type: number
+        # Typed as string because `${{ … || 0 }}` in the caller's `with:`
+        # gets stringified by the reusable-workflow input validator and
+        # rejected against `type: number`. The Python module parses it.
+        description: 'Hard cap on open tome-comment PRs ("0" = use upstream default 10)'
+        type: string
         required: false
-        default: 0
+        default: '0'
 
 permissions:
   contents: read
 
 env:
-  EFFECTIVE_MAX_OPEN_PRS: ${{ inputs.max_open_prs == 0 && 10 || inputs.max_open_prs }}
+  EFFECTIVE_MAX_OPEN_PRS: ${{ inputs.max_open_prs == '0' && '10' || inputs.max_open_prs }}
   PYTHONPATH: .actions/process-tome-comments/src
 
 jobs:
