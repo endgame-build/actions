@@ -186,35 +186,36 @@ class Cluster:
 
 
 def locate_block(source: str, block_index: int) -> tuple[str, int, int] | None:
-    """Return ``(snippet, line_start, line_end)`` for the Nth blank-line-delimited block in ``source``.
+    """Return ``(snippet, line_start, line_end)`` for the Nth CommonMark top-level block.
 
     Line numbers are 1-indexed and inclusive. Returns ``None`` if ``block_index``
     is out of range.
 
-    This is an approximation of Tome's block notion: Tome anchors on CommonMark
-    leaf blocks, while this splitter treats any run of consecutive non-blank
-    lines as one block. Close enough for paragraph-heavy markdown; the agent
-    re-reads the file anyway, so an approximate snippet is still a useful hint.
+    Uses `markdown-it-py` because Tome's editor counts blocks via `tiptap-markdown`
+    (which wraps `markdown-it`); any other splitter (e.g. blank-line) will diverge
+    on lists, code blocks, hr, headings-without-blank-line, etc. Imported lazily
+    so consumers that never call this (agent, pr-open, consolidate) don't need
+    the dep installed.
     """
-    lines = source.splitlines()
-    blocks: list[tuple[int, int]] = []
-    in_block = False
-    start = 0
-    for i, line in enumerate(lines):
-        if line.strip():
-            if not in_block:
-                start = i
-                in_block = True
-        elif in_block:
-            blocks.append((start, i - 1))
-            in_block = False
-    if in_block:
-        blocks.append((start, len(lines) - 1))
+    from markdown_it import MarkdownIt
 
-    if not 0 <= block_index < len(blocks):
+    md = MarkdownIt("commonmark")
+    tokens = md.parse(source)
+
+    top_blocks: list[tuple[int, int]] = []
+    for tok in tokens:
+        if tok.level != 0:
+            continue
+        standalone = tok.type in ("hr", "code_block", "fence", "html_block")
+        opener = tok.type.endswith("_open")
+        if (standalone or opener) and tok.map:
+            top_blocks.append((tok.map[0], tok.map[1]))
+
+    if not 0 <= block_index < len(top_blocks):
         return None
-    s, e = blocks[block_index]
-    return "\n".join(lines[s : e + 1]), s + 1, e + 1
+    s, end_excl = top_blocks[block_index]
+    lines = source.splitlines()
+    return "\n".join(lines[s:end_excl]), s + 1, end_excl
 
 
 def load_comments(path: str | Path) -> list[Comment]:

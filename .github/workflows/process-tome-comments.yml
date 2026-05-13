@@ -87,6 +87,12 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Install Python deps
+        # `locate_block` in `prepare` imports `markdown-it-py` to count
+        # CommonMark blocks the same way Tome's editor does (tiptap-markdown
+        # also wraps markdown-it). Other subcommands don't need it.
+        run: pip install --quiet -r .actions/process-tome-comments/requirements.txt
+
       - name: Compute cluster matrix
         id: prep
         env:

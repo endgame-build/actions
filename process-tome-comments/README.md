@@ -62,7 +62,8 @@ process-tome-comments/
 ├── prompt/prelude.md               # standing agent instructions (inlined verbatim into each prompt)
 ├── schema/pr-metadata.schema.json  # documents the agent's JSON output shape
 ├── profiles/pi.json                # nono profile: workdir + ~/.pi r+w, network to ollama.com only
-├── src/process_tome_comments/      # Python 3.11+, stdlib only
+├── requirements.txt                # `markdown-it-py` — for parser parity with Tome's block index
+├── src/process_tome_comments/      # Python 3.11+
 │   ├── __main__.py                 # subcommand dispatcher (`python -m process_tome_comments <name>`)
 │   ├── comments.py                 # Comment + Cluster types, JSONL I/O, clustering
 │   ├── metadata.py                 # PR-metadata JSON extraction + validation (pure)
