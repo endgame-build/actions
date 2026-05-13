@@ -13,7 +13,8 @@
   },
   "filesystem": {
     "allow": [
-      "$HOME/.pi"
+      "$HOME/.pi",
+      "/opt/hostedtoolcache"
     ]
   },
   "network": {
