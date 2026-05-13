@@ -7,7 +7,7 @@
 #   process     — load unresolved comments, cluster by (filePath, blockIndex),
 #                 open one PR per cluster, capped at max_open_prs.
 #   consolidate — listener for pull_request:closed. If the PR was merged and
-#                 carried tome-comment-id labels, mark those comments resolved
+#                 carried tome-cid labels, mark those comments resolved
 #                 on the default branch.
 #
 # Required secrets (caller passes via `secrets: inherit`):
@@ -63,7 +63,10 @@ jobs:
         with:
           repository: endgame-build/actions
           path: .actions
-          ref: ${{ github.action_ref || 'main' }}
+          # DOGFOOD: pinned to the feature branch so prepare uses the
+          # in-development Python. Restore `${{ github.action_ref || 'main' }}`
+          # before the v1.0.x release tag is cut.
+          ref: feat/process-tome-comments-py
           sparse-checkout: |
             process-tome-comments
 
@@ -113,7 +116,8 @@ jobs:
     steps:
       - name: Setup
         id: setup
-        uses: endgame-build/actions/tome-comments-setup@v1
+        # DOGFOOD: restore `@v1` before the v1.0.x release tag is cut.
+        uses: endgame-build/actions/tome-comments-setup@feat/process-tome-comments-py
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
@@ -189,7 +193,8 @@ jobs:
     steps:
       - name: Setup
         id: setup
-        uses: endgame-build/actions/tome-comments-setup@v1
+        # DOGFOOD: restore `@v1` before the v1.0.x release tag is cut.
+        uses: endgame-build/actions/tome-comments-setup@feat/process-tome-comments-py
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
