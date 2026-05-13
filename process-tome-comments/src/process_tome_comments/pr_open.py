@@ -87,7 +87,11 @@ def main() -> int:
     session.commit(subject=plan.title, body=plan.body)
 
     try:
-        session.push(f"HEAD:refs/heads/{plan.branch}")
+        # Force push: the `tome-comment/<uuid>` ref is bot-owned and
+        # uuid-unique, no humans collaborate on it. When the reviewer closes
+        # a prior bot PR and the workflow retries, the new commit needs to
+        # overwrite the stale remote tip. The closed PR keeps its history.
+        session.push(f"+HEAD:refs/heads/{plan.branch}")
     except subprocess.CalledProcessError:
         return 2
 
