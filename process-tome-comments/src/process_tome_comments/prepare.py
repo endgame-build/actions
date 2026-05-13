@@ -93,6 +93,13 @@ def main() -> int:
 
     matrix_include = []
     for i, cl in enumerate(picked):
+        # Resolve block_index → (snippet, line range) from the current source so
+        # the agent gets concrete anchor text, not just an opaque integer.
+        # Silently passes through if the source file is missing or block_index
+        # is out of range.
+        source_path = Path(cl.file_path)
+        if source_path.exists():
+            cl = cl.with_block_location(source_path.read_text(encoding="utf-8"))
         cl.write_json_file(clusters_dir / f"{i}.json")
         matrix_include.append({"idx": str(i), "short_id": cl.latest_id[:8]})
 

@@ -65,6 +65,21 @@ class PiAgent:
         comment_ids = ", ".join(cluster.comment_ids)
         parts: list[str] = [self.prelude_text]
 
+        location = f"**Block index:** {cluster.block_index}"
+        if cluster.line_start is not None and cluster.line_end is not None:
+            location += (
+                f" (lines {cluster.line_start}–{cluster.line_end} in the current"
+                " file; the snippet is shown below, but the file is the source"
+                " of truth — re-read if anything looks off)"
+            )
+
+        snippet_block = ""
+        if cluster.block_snippet:
+            snippet_block = (
+                "\n**Block snippet (the text the comment anchors to):**\n\n"
+                f"```\n{cluster.block_snippet}\n```\n"
+            )
+
         parts.append(
             f"""
 
@@ -73,10 +88,10 @@ class PiAgent:
 ## Cluster context for THIS invocation
 
 **Source file:** `{cluster.file_path}`
-**Block index:** {cluster.block_index}
+{location}
 **Cluster size:** {len(cluster.comments)} comment(s)
 **CLUSTER_COMMENT_IDS:** {comment_ids}
-
+{snippet_block}
 The comments to address (in arrival order):
 
 """

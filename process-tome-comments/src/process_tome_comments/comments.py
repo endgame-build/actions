@@ -98,12 +98,18 @@ class Cluster:
     """A group of comments sharing the same ``(file_path, block_index)``.
 
     The unit of agent invocation. ``comments`` is sorted ascending by
-    ``created_at``.
+    ``created_at``. ``block_snippet``/``line_start``/``line_end`` are
+    optional anchor metadata populated by ``prepare`` from the source file —
+    the Tome editor only stores ``(filePath, blockIndex)``, and `block N` is
+    opaque to the agent without resolving it back to actual text.
     """
 
     file_path: str
     block_index: int
     comments: tuple[Comment, ...]
+    block_snippet: str = ""
+    line_start: int | None = None
+    line_end: int | None = None
 
     @property
     def latest_id(self) -> str:
@@ -122,14 +128,39 @@ class Cluster:
     def comment_ids(self) -> list[str]:
         return [c.id for c in self.comments]
 
+    def with_block_location(self, source: str) -> Cluster:
+        """Return a copy with ``block_snippet``/``line_start``/``line_end`` derived from ``source``.
+
+        Returns ``self`` unchanged when the block index is out of range.
+        """
+        located = locate_block(source, self.block_index)
+        if located is None:
+            return self
+        snippet, line_start, line_end = located
+        return Cluster(
+            file_path=self.file_path,
+            block_index=self.block_index,
+            comments=self.comments,
+            block_snippet=snippet,
+            line_start=line_start,
+            line_end=line_end,
+        )
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "file_path": self.file_path,
             "block_index": self.block_index,
             "latest_id": self.latest_id,
             "earliest_created_at": self.earliest_created_at,
             "comments": [c.to_dict() for c in self.comments],
         }
+        if self.block_snippet:
+            d["block_snippet"] = self.block_snippet
+        if self.line_start is not None:
+            d["line_start"] = self.line_start
+        if self.line_end is not None:
+            d["line_end"] = self.line_end
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Cluster:
@@ -141,6 +172,9 @@ class Cluster:
             file_path=d["file_path"],
             block_index=int(d["block_index"]),
             comments=tuple(sorted(comments, key=lambda c: c.created_at)),
+            block_snippet=d.get("block_snippet", ""),
+            line_start=d.get("line_start"),
+            line_end=d.get("line_end"),
         )
 
     @classmethod
@@ -149,6 +183,38 @@ class Cluster:
 
     def write_json_file(self, path: str | Path) -> None:
         Path(path).write_text(json.dumps(self.to_dict()), encoding="utf-8")
+
+
+def locate_block(source: str, block_index: int) -> tuple[str, int, int] | None:
+    """Return ``(snippet, line_start, line_end)`` for the Nth blank-line-delimited block in ``source``.
+
+    Line numbers are 1-indexed and inclusive. Returns ``None`` if ``block_index``
+    is out of range.
+
+    This is an approximation of Tome's block notion: Tome anchors on CommonMark
+    leaf blocks, while this splitter treats any run of consecutive non-blank
+    lines as one block. Close enough for paragraph-heavy markdown; the agent
+    re-reads the file anyway, so an approximate snippet is still a useful hint.
+    """
+    lines = source.splitlines()
+    blocks: list[tuple[int, int]] = []
+    in_block = False
+    start = 0
+    for i, line in enumerate(lines):
+        if line.strip():
+            if not in_block:
+                start = i
+                in_block = True
+        elif in_block:
+            blocks.append((start, i - 1))
+            in_block = False
+    if in_block:
+        blocks.append((start, len(lines) - 1))
+
+    if not 0 <= block_index < len(blocks):
+        return None
+    s, e = blocks[block_index]
+    return "\n".join(lines[s : e + 1]), s + 1, e + 1
 
 
 def load_comments(path: str | Path) -> list[Comment]:
