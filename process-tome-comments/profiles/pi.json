@@ -1,0 +1,38 @@
+{
+  "extends": "default",
+  "meta": {
+    "name": "tome-comments-pi",
+    "version": "1.0.0",
+    "description": "Sandbox for pi when processing tome comments. Read+write the consumer repo's working tree and pi's own state directory; network access restricted to Ollama Cloud; OLLAMA_API_KEY is the only credential passed through."
+  },
+  "groups": {
+    "include": ["deny_credentials"]
+  },
+  "workdir": {
+    "access": "readwrite"
+  },
+  "filesystem": {
+    "allow": [
+      "$HOME/.pi",
+      "/opt/hostedtoolcache"
+    ]
+  },
+  "network": {
+    "block": false,
+    "network_profile": "minimal",
+    "allow_domain": ["ollama.com"]
+  },
+  "environment": {
+    "allow_vars": [
+      "OLLAMA_API_KEY",
+      "AUTOFIX_MODEL",
+      "PI_OFFLINE",
+      "GITHUB_WORKSPACE",
+      "RUNNER_TEMP",
+      "HOME",
+      "PATH",
+      "SSL_CERT_FILE",
+      "NIX_SSL_CERT_FILE"
+    ]
+  }
+}

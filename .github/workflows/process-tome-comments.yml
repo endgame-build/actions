@@ -1,0 +1,233 @@
+# Process Tome review comments by opening one PR per cluster.
+#
+# Reusable workflow consumed by adopting repos via:
+#   uses: endgame-build/actions/.github/workflows/process-tome-comments.yml@v1
+#
+# Two modes, dispatched by `inputs.mode` (auto-derived from event in the wrapper):
+#   process     — load unresolved comments, cluster by (filePath, blockIndex),
+#                 open one PR per cluster, capped at max_open_prs.
+#   consolidate — listener for pull_request:closed. If the PR was merged and
+#                 carried tome-cid labels, mark those comments resolved
+#                 on the default branch.
+#
+# Required secrets (caller passes via `secrets: inherit`):
+#   TOME_COMMENTS_APP_ID, TOME_COMMENTS_APP_PRIVATE_KEY — `tome-comments[bot]` App
+#   OLLAMA_API_KEY                                     — Ollama Cloud key
+#
+# See process-tome-comments/CONTEXT.md for vocabulary.
+# See process-tome-comments/README.md for the spec.
+
+name: Process Tome Comments
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'process or consolidate'
+        type: string
+        required: true
+      max_open_prs:
+        # Typed as string because `${{ … || 0 }}` in the caller's `with:`
+        # gets stringified by the reusable-workflow input validator and
+        # rejected against `type: number`. The Python module parses it.
+        description: 'Hard cap on open tome-comment PRs ("0" = use upstream default 10)'
+        type: string
+        required: false
+        default: '0'
+
+permissions:
+  contents: read
+
+env:
+  EFFECTIVE_MAX_OPEN_PRS: ${{ inputs.max_open_prs == '0' && '10' || inputs.max_open_prs }}
+  PYTHONPATH: .actions/process-tome-comments/src
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PROCESS MODE
+  # ─────────────────────────────────────────────────────────────────────────
+  prepare:
+    if: inputs.mode == 'process'
+    name: Prepare clusters
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.prep.outputs.matrix }}
+      has_clusters: ${{ steps.prep.outputs.has_clusters }}
+    steps:
+      - name: Checkout consumer repo
+        uses: actions/checkout@v4
+
+      - name: Resolve workflow ref
+        id: resolve-ref
+        shell: bash
+        run: |
+          # `${{ github.action_ref }}` is empty for a reusable-workflow's
+          # own steps (only populated for composite-action invocations).
+          # Parse the actual ref out of $GITHUB_WORKFLOW_REF, which has the
+          # form `<owner>/<repo>/.github/workflows/<file>@<ref>`, so the
+          # sparse checkout below pulls the Python module from the same
+          # ref this workflow was called at instead of always `main`.
+          REF="${GITHUB_WORKFLOW_REF##*@}"
+          REF="${REF#refs/heads/}"
+          REF="${REF#refs/tags/}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout actions repo (sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: endgame-build/actions
+          path: .actions
+          ref: ${{ steps.resolve-ref.outputs.ref }}
+          sparse-checkout: |
+            process-tome-comments
+
+      - name: Skip if our own consolidate commit
+        # A push triggered by tome-comments[bot]'s own consolidate commit
+        # would re-process needlessly. Bail cleanly.
+        if: |
+          github.event_name == 'push' &&
+          github.event.head_commit.author.username == 'tome-comments[bot]'
+        run: |
+          echo "::notice::Tip commit is from tome-comments[bot]; skipping."
+          {
+            echo "matrix={\"include\":[]}"
+            echo "has_clusters=false"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Install Python deps
+        # `locate_block` in `prepare` imports `markdown-it-py` to count
+        # CommonMark blocks the same way Tome's editor does (tiptap-markdown
+        # also wraps markdown-it). Other subcommands don't need it.
+        run: pip install --quiet -r .actions/process-tome-comments/requirements.txt
+
+      - name: Compute cluster matrix
+        id: prep
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_OPEN_PRS: ${{ env.EFFECTIVE_MAX_OPEN_PRS }}
+        run: python3 -m process_tome_comments prepare
+
+      - name: Upload cluster artifact
+        if: steps.prep.outputs.has_clusters == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tome-clusters-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/clusters/
+          retention-days: 1
+          if-no-files-found: error
+
+  process:
+    needs: prepare
+    if: inputs.mode == 'process' && needs.prepare.outputs.has_clusters == 'true'
+    name: Process cluster ${{ matrix.short_id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup
+        id: setup
+        uses: endgame-build/actions/tome-comments-setup@v1
+        with:
+          app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
+          app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+
+      - name: Download cluster artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tome-clusters-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/clusters/
+
+      - name: Setup Node.js (for pi-coding-agent)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pi
+        run: npm install -g @earendil-works/pi-coding-agent
+
+      - name: Install nono (sandbox)
+        run: |
+          set -euo pipefail
+          VERSION=$(curl -sI https://github.com/always-further/nono/releases/latest \
+            | grep -i '^location:' | grep -oP 'v\K[0-9.]+')
+          ARCH=$(dpkg --print-architecture)
+          curl -fsSL -o "/tmp/nono.deb" \
+            "https://github.com/always-further/nono/releases/download/v${VERSION}/nono-cli_${VERSION}_${ARCH}.deb"
+          sudo dpkg -i /tmp/nono.deb
+          nono --version
+          # nono 0.54+ rejects the run if $HOME/.nono/sessions is group/world
+          # accessible; the default GHA-runner umask creates it 0755. Pre-create
+          # with the tight perms so the first invocation doesn't bail.
+          mkdir -p "$HOME/.nono/sessions"
+          chmod 700 "$HOME/.nono/sessions"
+
+      - name: Mask Ollama API key
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: echo "::add-mask::$OLLAMA_API_KEY"
+
+      - name: Run agent
+        id: agent
+        env:
+          # Only the model API key is exposed to the agent. The App token is
+          # set in the next step's env, NOT here. The nono sandbox additionally
+          # restricts filesystem + network at the kernel level — see
+          # process-tome-comments/profiles/pi.json.
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          AUTOFIX_MODEL: ${{ vars.TOME_COMMENTS_AUTOFIX_MODEL || 'gpt-oss:120b' }}
+          MATRIX_IDX: ${{ matrix.idx }}
+          # Disable pi's startup network operations (update checks, telemetry).
+          # The nono profile only allows egress to ollama.com.
+          PI_OFFLINE: '1'
+        run: python3 -m process_tome_comments agent
+
+      - name: Open PR
+        env:
+          AGENT_OUTPUT_PATH: ${{ steps.agent.outputs.agent_output_path }}
+          MATRIX_IDX: ${{ matrix.idx }}
+          APP_TOKEN: ${{ steps.setup.outputs.app-token }}
+          APP_SLUG: ${{ steps.setup.outputs.app-slug }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m process_tome_comments pr-open
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # CONSOLIDATE MODE
+  # ─────────────────────────────────────────────────────────────────────────
+  consolidate:
+    if: inputs.mode == 'consolidate'
+    name: Consolidate (post-merge JSONL update)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: tome-consolidate-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup
+        id: setup
+        uses: endgame-build/actions/tome-comments-setup@v1
+        with:
+          app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
+          app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+
+      - name: Update JSONL on default branch
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          APP_TOKEN: ${{ steps.setup.outputs.app-token }}
+          APP_SLUG: ${{ steps.setup.outputs.app-slug }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m process_tome_comments consolidate
