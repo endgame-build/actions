@@ -116,11 +116,16 @@ jobs:
     steps:
       - name: Setup
         id: setup
-        # DOGFOOD: restore `@v1` before the v1.0.x release tag is cut.
+        # DOGFOOD: restore `@v1` and drop `actions-ref:` before the
+        # v1.0.x release tag is cut. The composite's default
+        # `github.action_ref` fallback evaluates to the inner checkout
+        # action's ref (`v4`), not this composite's invocation ref, so
+        # we have to pass the ref explicitly here.
         uses: endgame-build/actions/tome-comments-setup@feat/process-tome-comments-py
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+          actions-ref: feat/process-tome-comments-py
 
       - name: Download cluster artifact
         uses: actions/download-artifact@v4
@@ -193,11 +198,16 @@ jobs:
     steps:
       - name: Setup
         id: setup
-        # DOGFOOD: restore `@v1` before the v1.0.x release tag is cut.
+        # DOGFOOD: restore `@v1` and drop `actions-ref:` before the
+        # v1.0.x release tag is cut. The composite's default
+        # `github.action_ref` fallback evaluates to the inner checkout
+        # action's ref (`v4`), not this composite's invocation ref, so
+        # we have to pass the ref explicitly here.
         uses: endgame-build/actions/tome-comments-setup@feat/process-tome-comments-py
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+          actions-ref: feat/process-tome-comments-py
 
       - name: Update JSONL on default branch
         env:
