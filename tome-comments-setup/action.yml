@@ -9,7 +9,7 @@ inputs:
     description: 'tome-comments[bot] App private key (PEM)'
     required: true
   actions-ref:
-    description: 'Ref of endgame-build/actions to sparse-checkout. Defaults to github.action_ref.'
+    description: 'Ref of endgame-build/actions to sparse-checkout. Defaults to this composite''s own invocation ref (resolved via $GITHUB_ACTION_REF).'
     required: false
     default: ''
 
@@ -31,6 +31,21 @@ runs:
         app-id: ${{ inputs.app-id }}
         private-key: ${{ inputs.app-private-key }}
 
+    - name: Resolve actions ref
+      id: resolve-ref
+      shell: bash
+      env:
+        OVERRIDE: ${{ inputs.actions-ref }}
+      run: |
+        # `${{ github.action_ref }}` inside a composite step's `with:` block
+        # evaluates to the *inner* action's ref (e.g. `v4` for
+        # actions/checkout@v4), not this composite's invocation ref. The
+        # `GITHUB_ACTION_REF` env var inside a composite's `run:` step,
+        # however, correctly resolves to the composite's own ref — so we
+        # capture it here and pass it explicitly to the checkout below.
+        REF="${OVERRIDE:-${GITHUB_ACTION_REF:-main}}"
+        echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
     - name: Checkout consumer repo (App token)
       uses: actions/checkout@v4
       with:
@@ -47,6 +62,6 @@ runs:
       with:
         repository: endgame-build/actions
         path: .actions
-        ref: ${{ inputs.actions-ref || github.action_ref || 'main' }}
+        ref: ${{ steps.resolve-ref.outputs.ref }}
         sparse-checkout: |
           process-tome-comments
