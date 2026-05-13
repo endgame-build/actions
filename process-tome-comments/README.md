@@ -25,8 +25,8 @@ A `concurrency` group `tome-comments-${{ github.repository }}` serializes all ru
 
 ## Behavior — `process` mode
 
-1. **Fetch backlog.** One `gh pr list --search 'label:"auto:tome-comment-pr"' --state all` call returns every tome-PR with its labels and state (`TomeBacklog`).
-2. **Filter.** Load `.tome/comments.jsonl`; drop comments where `isResolved == true`, or where the backlog already contains the comment's id (from a `tome-cid:<uuid>` label on any tome-PR).
+1. **Fetch backlog.** One `gh pr list --search 'label:"auto:tome-comment-pr"' --state open` call returns the labels of every currently-open tome-PR (`TomeBacklog`).
+2. **Filter.** Load `.tome/comments.jsonl`; drop comments where `isResolved == true`, or where an open bot PR already carries the comment's `tome-cid:<uuid>` label (no duplicate while one is in flight). Closing a bot PR without merging makes the comment eligible again on the next dispatch — the canonical "discard this comment" signal is resolving it in Tome.
 3. **Cluster.** Group remaining comments by `(filePath, blockIndex)`. One PR per cluster.
 4. **Slot budget.** `open_count` comes from the backlog (PRs in state `OPEN`). Slots = `max_open_prs − open_count`. Take the oldest `slots` clusters by earliest member's `createdAt`.
 5. **Per cluster, in a matrix step (max-parallel: 1):**
@@ -45,7 +45,7 @@ Triggered by `pull_request: closed`. If the closed PR is merged AND carries any 
 2. Push as a separate bot commit (`chore(tome): resolve comment <shortid>`).
 3. After the push succeeds, remove the `auto:tome-comment-pr` label from the PR (best-effort — a failed drop leaves an orphan label but doesn't break idempotency, which now flows through the resolved jsonl entry). Per-id `tome-cid:*` labels stay as the historical record and are still what `consolidate` reads to decode which comments to resolve.
 
-PR diffs themselves never touch `.tome/`. Closed-but-not-merged PRs are not processed (the `tome-cid` labels on a closed PR keep the comment in the backlog's `addressed_comment_ids`, preventing re-runs from regenerating the same PR).
+PR diffs themselves never touch `.tome/`. Closed-but-not-merged PRs are not processed by consolidate. The comment they addressed becomes eligible again on the next dispatch (since the backlog scan is open-only); resolve the comment in Tome if you want to discard it instead of retrying.
 
 ## Failure handling
 
