@@ -10,7 +10,7 @@ from pathlib import Path
 from .bot import BotSession
 from .comments import Cluster
 from .gha import error, git, notice, warning
-from .metadata import MetadataError
+from .metadata import COMMENT_LABEL_PREFIX, TOME_PR_LABEL, MetadataError
 from .policy import policy_violations
 from .pr_plan import PRPlan
 
@@ -19,6 +19,27 @@ def working_tree_has_changes() -> bool:
     git("add", "-A")
     r = git("diff", "--cached", "--quiet", check=False)
     return r.returncode != 0
+
+
+def _ensure_labels(session: BotSession, labels: tuple[str, ...]) -> None:
+    # `gh pr create --label X` fails if X doesn't exist on the repo. Per-id
+    # `tome-cid:<uuid>` labels are unique per comment, so they can't be
+    # pre-seeded — create them lazily here. `--force` is idempotent: creates
+    # if missing, updates color/description otherwise.
+    for label in labels:
+        if label == TOME_PR_LABEL:
+            color, desc = "fbca04", "Automated PR opened by process-tome-comments"
+        elif label.startswith(COMMENT_LABEL_PREFIX):
+            color, desc = "0e8a16", "Addresses a Tome comment id"
+        else:
+            color, desc = "ededed", ""
+        try:
+            session.gh(
+                ["label", "create", label, "--force", "--color", color,
+                 "--description", desc]
+            )
+        except subprocess.CalledProcessError as e:
+            warning(f"could not ensure label {label!r}: {e.stderr.strip()[:200]}")
 
 
 def main() -> int:
@@ -65,6 +86,7 @@ def main() -> int:
     except subprocess.CalledProcessError:
         return 2
 
+    _ensure_labels(session, plan.labels)
     labels = ",".join(plan.labels)
     reviewers = ",".join(plan.reviewers)
 
