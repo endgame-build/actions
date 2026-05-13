@@ -154,6 +154,11 @@ jobs:
             "https://github.com/always-further/nono/releases/download/v${VERSION}/nono-cli_${VERSION}_${ARCH}.deb"
           sudo dpkg -i /tmp/nono.deb
           nono --version
+          # nono 0.54+ rejects the run if $HOME/.nono/sessions is group/world
+          # accessible; the default GHA-runner umask creates it 0755. Pre-create
+          # with the tight perms so the first invocation doesn't bail.
+          mkdir -p "$HOME/.nono/sessions"
+          chmod 700 "$HOME/.nono/sessions"
 
       - name: Mask Ollama API key
         env:
