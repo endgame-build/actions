@@ -9,6 +9,7 @@ Reusable workflow that converts unresolved comments in a repo's `.tome/comments.
 | Repo file | `.tome/comments.jsonl` — one JSON object per line. Written by the Tome editor. |
 | Workflow input | `mode` — `process` or `consolidate`. |
 | Workflow input | `max_open_prs` — hard cap on open tome-comment PRs (0 = use upstream default `10`). |
+| Workflow input | `actions_ref` — ref of `endgame-build/actions` to sparse-checkout for the Python module + composite. Defaults to `v1` (floats). Pin alongside the workflow ref for stable patch-pin behavior. |
 | Org secret | `OLLAMA_API_KEY` — for the pi agent invocation against Ollama Cloud. |
 | Org secret | `TOME_COMMENTS_APP_ID`, `TOME_COMMENTS_APP_PRIVATE_KEY` — for the `tome-comments[bot]` App that pushes and opens PRs. |
 | Repo variable (optional) | `TOME_COMMENTS_AUTOFIX_MODEL` — Ollama Cloud model id. Defaults to `gpt-oss:120b`. |
@@ -47,6 +48,21 @@ Triggered by `pull_request: closed`. If the closed PR is merged AND carries any 
 
 PR diffs themselves never touch `.tome/`. Closed-but-not-merged PRs are not processed by consolidate. The comment they addressed becomes eligible again on the next dispatch (since the backlog scan is open-only); resolve the comment in Tome if you want to discard it instead of retrying.
 
+## Versioning
+
+The consumer's wrapper pins the workflow at `endgame-build/actions/.github/workflows/process-tome-comments.yml@<ref>`. By default the workflow fetches its own Python module + composite at the floating `v1` major-version tag, so a consumer pinned to `@v1.3.0` will silently get patches of the Python module as `v1` floats forward.
+
+For stable patch-pin behavior, pass `actions_ref` matching the workflow ref:
+
+```yaml
+uses: endgame-build/actions/.github/workflows/process-tome-comments.yml@v1.3.0
+with:
+  ...
+  actions_ref: v1.3.0
+```
+
+(The setup composite at `@v1` is shared scaffolding and is not parameterized — its source still floats with `v1`, but it only fetches Python at the `actions_ref` you passed.)
+
 ## Failure handling
 
 - **Per-cluster content failure** (invalid JSON, empty diff, disallowed paths, permanent auth): log, clean working tree, continue to next cluster. Cluster's comments remain unresolved; next trigger retries.
@@ -56,21 +72,24 @@ PR diffs themselves never touch `.tome/`. Closed-but-not-merged PRs are not proc
 ## Layout
 
 ```
+.github/workflows/process-tome-comments.yml  # the reusable workflow (GitHub requires this path)
+
 process-tome-comments/
 ├── CONTEXT.md                      # domain vocabulary (Comment, Cluster, prelude, modes, …)
 ├── README.md                       # this spec
-├── prompt/prelude.md               # standing agent instructions (inlined verbatim into each prompt)
-├── schema/pr-metadata.schema.json  # documents the agent's JSON output shape
+├── setup/action.yml                # composite preamble: mint App token + dual checkout
+├── prompt/prelude.md               # standing agent instructions (inlined into each prompt)
+├── schema/pr-metadata.schema.json  # PR-metadata schema, enforced via jsonschema
 ├── profiles/pi.json                # nono profile: workdir + ~/.pi r+w, network to ollama.com only
-├── requirements.txt                # `markdown-it-py` — for parser parity with Tome's block index
+├── requirements.txt                # markdown-it-py (block parity with Tome) + jsonschema
 ├── src/process_tome_comments/      # Python 3.11+
 │   ├── __main__.py                 # subcommand dispatcher (`python -m process_tome_comments <name>`)
-│   ├── comments.py                 # Comment + Cluster types, JSONL I/O, clustering
-│   ├── metadata.py                 # PR-metadata JSON extraction + validation (pure)
+│   ├── comments.py                 # Comment + Cluster types, JSONL I/O, clustering, block locator
+│   ├── metadata.py                 # PR-metadata JSON extraction + schema validation
 │   ├── pr_plan.py                  # PRPlan: pure (Cluster, agent_text) → ready-to-submit shape
 │   ├── pi_agent.py                 # PiAgent: pi config + prompt + nono+pi subprocess + event parse
 │   ├── bot.py                      # BotSession: App-bot identity bound to a repo, git+gh helpers
-│   ├── backlog.py                  # TomeBacklog: one-call snapshot of tome-PR state (idempotency + slot count)
+│   ├── backlog.py                  # TomeBacklog: snapshot of currently-open tome-PRs
 │   ├── policy.py                   # post-edit policy check (staged diff vs disallowed paths)
 │   ├── gha.py                      # GitHub Actions glue (outputs, log levels, subprocess)
 │   ├── prepare.py                  # `prepare` subcommand
@@ -78,9 +97,6 @@ process-tome-comments/
 │   ├── pr_open.py                  # `pr-open` subcommand: PRPlan + policy + BotSession
 │   └── consolidate.py              # `consolidate` subcommand: BotSession + JSONL update
 └── wrapper.example.yml             # per-repo workflow file (copy verbatim, ~25 lines)
-
-tome-comments-setup/action.yml      # composite action: mint App token + dual checkout
-.github/workflows/process-tome-comments.yml  # the reusable workflow
 ```
 
 ## Out of scope (v1)

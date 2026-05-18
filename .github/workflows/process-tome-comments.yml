@@ -34,6 +34,18 @@ on:
         type: string
         required: false
         default: '0'
+      actions_ref:
+        # GitHub doesn't expose "the ref this reusable workflow was called
+        # at" from inside the workflow — `$GITHUB_WORKFLOW_REF` gives the
+        # CALLER's ref. Without an explicit input, the only thing we can
+        # reach for the actions-repo sparse-checkout + composite is the
+        # hardcoded `@v1` major-version tag, which floats. Consumers who
+        # need a stable patch-pin pass this matching their workflow ref;
+        # default tracks the floating v1 line.
+        description: 'Ref of endgame-build/actions for sparse-checkout + setup composite. Pin alongside the workflow ref for stable patch-pin behavior.'
+        type: string
+        required: false
+        default: 'v1'
 
 permissions:
   contents: read
@@ -61,27 +73,12 @@ jobs:
       - name: Checkout consumer repo
         uses: actions/checkout@v4
 
-      - name: Resolve workflow ref
-        id: resolve-ref
-        shell: bash
-        run: |
-          # `${{ github.action_ref }}` is empty for a reusable-workflow's
-          # own steps (only populated for composite-action invocations).
-          # Parse the actual ref out of $GITHUB_WORKFLOW_REF, which has the
-          # form `<owner>/<repo>/.github/workflows/<file>@<ref>`, so the
-          # sparse checkout below pulls the Python module from the same
-          # ref this workflow was called at instead of always `main`.
-          REF="${GITHUB_WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-
       - name: Checkout actions repo (sparse)
         uses: actions/checkout@v4
         with:
           repository: endgame-build/actions
           path: .actions
-          ref: ${{ steps.resolve-ref.outputs.ref }}
+          ref: ${{ inputs.actions_ref }}
           sparse-checkout: |
             process-tome-comments
 
@@ -137,10 +134,11 @@ jobs:
     steps:
       - name: Setup
         id: setup
-        uses: endgame-build/actions/tome-comments-setup@v1
+        uses: endgame-build/actions/process-tome-comments/setup@v1
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+          actions-ref: ${{ inputs.actions_ref }}
 
       - name: Download cluster artifact
         uses: actions/download-artifact@v4
@@ -223,10 +221,11 @@ jobs:
     steps:
       - name: Setup
         id: setup
-        uses: endgame-build/actions/tome-comments-setup@v1
+        uses: endgame-build/actions/process-tome-comments/setup@v1
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
+          actions-ref: ${{ inputs.actions_ref }}
 
       - name: Update JSONL on default branch
         env:
