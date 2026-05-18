@@ -1,0 +1,67 @@
+name: 'tome-comments setup'
+description: 'Shared preamble for process-tome-comments jobs: mint App token, checkout consumer + actions repos.'
+
+inputs:
+  app-id:
+    description: 'tome-comments[bot] App ID'
+    required: true
+  app-private-key:
+    description: 'tome-comments[bot] App private key (PEM)'
+    required: true
+  actions-ref:
+    description: 'Ref of endgame-build/actions to sparse-checkout. Defaults to this composite''s own invocation ref (resolved via $GITHUB_ACTION_REF).'
+    required: false
+    default: ''
+
+outputs:
+  app-token:
+    description: 'Installation token minted for tome-comments[bot]'
+    value: ${{ steps.app-token.outputs.token }}
+  app-slug:
+    description: 'App slug (used to derive bot login)'
+    value: ${{ steps.app-token.outputs.app-slug }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Mint App token
+      id: app-token
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.app-private-key }}
+
+    - name: Resolve actions ref
+      id: resolve-ref
+      shell: bash
+      env:
+        OVERRIDE: ${{ inputs.actions-ref }}
+      run: |
+        # `${{ github.action_ref }}` inside a composite step's `with:` block
+        # evaluates to the *inner* action's ref (e.g. `v4` for
+        # actions/checkout@v4), not this composite's invocation ref. The
+        # `GITHUB_ACTION_REF` env var inside a composite's `run:` step,
+        # however, correctly resolves to the composite's own ref — so we
+        # capture it here and pass it explicitly to the checkout below.
+        REF="${OVERRIDE:-${GITHUB_ACTION_REF:-main}}"
+        echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout consumer repo (App token)
+      uses: actions/checkout@v4
+      with:
+        token: ${{ steps.app-token.outputs.token }}
+        # Pin to the workflow's commit SHA. Without it, checkout@v4 invoked
+        # inside a composite picks up GITHUB_ACTION_REF (= the checkout
+        # action's own ref, `v4`) and tries to fetch a `v4*` branch from
+        # the consumer repo.
+        ref: ${{ github.sha }}
+        fetch-depth: 1
+
+    - name: Checkout actions repo (sparse)
+      uses: actions/checkout@v4
+      with:
+        repository: endgame-build/actions
+        path: .actions
+        ref: ${{ steps.resolve-ref.outputs.ref }}
+        sparse-checkout: |
+          process-tome-comments
