@@ -18,16 +18,16 @@ outputs:
     value: ${{ steps.app-token.outputs.app-slug }}
   python-path:
     description: 'Absolute path to the process_tome_comments Python source tree. Use as PYTHONPATH.'
-    value: ${{ github.action_path }}/../src
+    value: ${{ steps.paths.outputs.python-path }}
   prelude-path:
     description: 'Absolute path to the standing-instructions prelude markdown.'
-    value: ${{ github.action_path }}/../prompt/prelude.md
+    value: ${{ steps.paths.outputs.prelude-path }}
   profile-path:
     description: 'Absolute path to the nono sandbox profile.'
-    value: ${{ github.action_path }}/../profiles/pi.json
+    value: ${{ steps.paths.outputs.profile-path }}
   requirements-path:
     description: 'Absolute path to the Python requirements file.'
-    value: ${{ github.action_path }}/../requirements.txt
+    value: ${{ steps.paths.outputs.requirements-path }}
 
 runs:
   using: 'composite'
@@ -38,6 +38,24 @@ runs:
       with:
         app-id: ${{ inputs.app-id }}
         private-key: ${{ inputs.app-private-key }}
+
+    - name: Resolve asset paths
+      id: paths
+      shell: bash
+      # `${{ github.action_path }}` inside a composite's `outputs.<n>.value`
+      # block evaluates to empty by the time the output is propagated to the
+      # caller — observed as `PYTHONPATH: /../src` on a real run. The
+      # `$GITHUB_ACTION_PATH` env var inside a `run:` step, however, correctly
+      # resolves to this composite's on-disk location, so we compute the
+      # absolute paths here and surface them via $GITHUB_OUTPUT.
+      run: |
+        BASE="$(cd "$GITHUB_ACTION_PATH/.." && pwd)"
+        {
+          echo "python-path=$BASE/src"
+          echo "prelude-path=$BASE/prompt/prelude.md"
+          echo "profile-path=$BASE/profiles/pi.json"
+          echo "requirements-path=$BASE/requirements.txt"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Checkout consumer repo (App token)
       uses: actions/checkout@v4
