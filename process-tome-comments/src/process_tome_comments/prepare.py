@@ -28,9 +28,6 @@ def _emit_matrix(matrix_include: list[dict]) -> None:
 
 
 def main() -> int:
-    # DRIFT-TEST-MARKER: if this line appears in the prepare log of a caller
-    # pinned to @v1.3.0, the sparse-checkout fetched main instead of v1.3.0.
-    print("DRIFT-TEST-MARKER: running prepare from main HEAD")
     max_open_prs = int(os.environ.get("MAX_OPEN_PRS", "10"))
     runner_temp = Path(os.environ.get("RUNNER_TEMP", "/tmp"))
     clusters_dir = runner_temp / "clusters"
