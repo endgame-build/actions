@@ -42,7 +42,7 @@ The reusable workflow runs in one of two modes, dispatched by the wrapper's `inp
 
 **Consumer repo** — the repository that adopts the workflow by adding the wrapper file. The agent runs against a fresh checkout of this repo. App must be installed on it.
 
-**Actions repo** — `endgame-build/actions`, where this workflow lives. Sparse-checked-out into `.actions/` at runtime so consumer repos pick up scripts + prelude + schema + nono profile without having to commit anything but the wrapper.
+**Actions repo** — `endgame-build/actions`, where this workflow lives. The Python module + prelude + schema + nono profile are reached via the setup composite's auto-checkout (GitHub clones the action's repo when resolving `uses: …/process-tome-comments/setup@<ref>`), so the same ref the consumer pinned propagates without a second `actions/checkout`. The composite exposes the on-disk paths as outputs.
 
 ## Slot budget
 

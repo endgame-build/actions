@@ -40,7 +40,6 @@ permissions:
 
 env:
   EFFECTIVE_MAX_OPEN_PRS: ${{ inputs.max_open_prs == '0' && '10' || inputs.max_open_prs }}
-  PYTHONPATH: .actions/process-tome-comments/src
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
@@ -54,36 +53,20 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      id-token: write
     outputs:
       matrix: ${{ steps.prep.outputs.matrix }}
       has_clusters: ${{ steps.prep.outputs.has_clusters }}
     steps:
-      - name: Checkout consumer repo
-        uses: actions/checkout@v4
-
-      - name: Resolve workflow ref
-        id: resolve-ref
-        shell: bash
-        run: |
-          # `${{ github.action_ref }}` is empty for a reusable-workflow's
-          # own steps (only populated for composite-action invocations).
-          # Parse the actual ref out of $GITHUB_WORKFLOW_REF, which has the
-          # form `<owner>/<repo>/.github/workflows/<file>@<ref>`, so the
-          # sparse checkout below pulls the Python module from the same
-          # ref this workflow was called at instead of always `main`.
-          REF="${GITHUB_WORKFLOW_REF##*@}"
-          REF="${REF#refs/heads/}"
-          REF="${REF#refs/tags/}"
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout actions repo (sparse)
-        uses: actions/checkout@v4
+      - name: Setup
+        id: setup
+        # The composite checks out both the consumer repo and (implicitly,
+        # via its own action source) this actions repo at the ref the
+        # consumer pinned. Exposes the Python module + assets as outputs.
+        uses: endgame-build/actions/process-tome-comments/setup@v1
         with:
-          repository: endgame-build/actions
-          path: .actions
-          ref: ${{ steps.resolve-ref.outputs.ref }}
-          sparse-checkout: |
-            process-tome-comments
+          app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
+          app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
 
       - name: Skip if our own consolidate commit
         # A push triggered by tome-comments[bot]'s own consolidate commit
@@ -102,14 +85,16 @@ jobs:
       - name: Install Python deps
         # `locate_block` in `prepare` imports `markdown-it-py` to count
         # CommonMark blocks the same way Tome's editor does (tiptap-markdown
-        # also wraps markdown-it). Other subcommands don't need it.
-        run: pip install --quiet -r .actions/process-tome-comments/requirements.txt
+        # also wraps markdown-it); `pr-open` imports `jsonschema` (lazy)
+        # to validate the agent's PR metadata.
+        run: pip install --quiet -r "${{ steps.setup.outputs.requirements-path }}"
 
       - name: Compute cluster matrix
         id: prep
         env:
           GH_TOKEN: ${{ github.token }}
           MAX_OPEN_PRS: ${{ env.EFFECTIVE_MAX_OPEN_PRS }}
+          PYTHONPATH: ${{ steps.setup.outputs.python-path }}
         run: python3 -m process_tome_comments prepare
 
       - name: Upload cluster artifact
@@ -137,7 +122,7 @@ jobs:
     steps:
       - name: Setup
         id: setup
-        uses: endgame-build/actions/tome-comments-setup@v1
+        uses: endgame-build/actions/process-tome-comments/setup@v1
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
@@ -154,9 +139,7 @@ jobs:
           node-version: '20'
 
       - name: Install Python deps
-        # `pr-open` imports `jsonschema` (lazy) to validate the agent's PR
-        # metadata against `schema/pr-metadata.schema.json`.
-        run: pip install --quiet -r .actions/process-tome-comments/requirements.txt
+        run: pip install --quiet -r "${{ steps.setup.outputs.requirements-path }}"
 
       - name: Install pi
         run: npm install -g @earendil-works/pi-coding-agent
@@ -187,14 +170,17 @@ jobs:
         env:
           # Only the model API key is exposed to the agent. The App token is
           # set in the next step's env, NOT here. The nono sandbox additionally
-          # restricts filesystem + network at the kernel level — see
-          # process-tome-comments/profiles/pi.json.
+          # restricts filesystem + network at the kernel level — see the
+          # profile referenced by PROFILE_PATH below.
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
           AUTOFIX_MODEL: ${{ vars.TOME_COMMENTS_AUTOFIX_MODEL || 'gpt-oss:120b' }}
           MATRIX_IDX: ${{ matrix.idx }}
           # Disable pi's startup network operations (update checks, telemetry).
           # The nono profile only allows egress to ollama.com.
           PI_OFFLINE: '1'
+          PYTHONPATH: ${{ steps.setup.outputs.python-path }}
+          PRELUDE_PATH: ${{ steps.setup.outputs.prelude-path }}
+          PROFILE_PATH: ${{ steps.setup.outputs.profile-path }}
         run: python3 -m process_tome_comments agent
 
       - name: Open PR
@@ -204,6 +190,7 @@ jobs:
           APP_TOKEN: ${{ steps.setup.outputs.app-token }}
           APP_SLUG: ${{ steps.setup.outputs.app-slug }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONPATH: ${{ steps.setup.outputs.python-path }}
         run: python3 -m process_tome_comments pr-open
 
   # ─────────────────────────────────────────────────────────────────────────
@@ -223,7 +210,7 @@ jobs:
     steps:
       - name: Setup
         id: setup
-        uses: endgame-build/actions/tome-comments-setup@v1
+        uses: endgame-build/actions/process-tome-comments/setup@v1
         with:
           app-id: ${{ secrets.TOME_COMMENTS_APP_ID }}
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
@@ -235,4 +222,5 @@ jobs:
           APP_TOKEN: ${{ steps.setup.outputs.app-token }}
           APP_SLUG: ${{ steps.setup.outputs.app-slug }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONPATH: ${{ steps.setup.outputs.python-path }}
         run: python3 -m process_tome_comments consolidate

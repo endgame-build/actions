@@ -56,21 +56,24 @@ PR diffs themselves never touch `.tome/`. Closed-but-not-merged PRs are not proc
 ## Layout
 
 ```
+.github/workflows/process-tome-comments.yml  # the reusable workflow (GitHub-required path)
+
 process-tome-comments/
 ├── CONTEXT.md                      # domain vocabulary (Comment, Cluster, prelude, modes, …)
 ├── README.md                       # this spec
-├── prompt/prelude.md               # standing agent instructions (inlined verbatim into each prompt)
-├── schema/pr-metadata.schema.json  # documents the agent's JSON output shape
+├── setup/action.yml                # composite: mint App token + checkout consumer + expose asset paths
+├── prompt/prelude.md               # standing agent instructions (inlined into each prompt)
+├── schema/pr-metadata.schema.json  # PR-metadata schema, enforced via jsonschema
 ├── profiles/pi.json                # nono profile: workdir + ~/.pi r+w, network to ollama.com only
-├── requirements.txt                # `markdown-it-py` — for parser parity with Tome's block index
+├── requirements.txt                # markdown-it-py (block parity with Tome) + jsonschema
 ├── src/process_tome_comments/      # Python 3.11+
 │   ├── __main__.py                 # subcommand dispatcher (`python -m process_tome_comments <name>`)
-│   ├── comments.py                 # Comment + Cluster types, JSONL I/O, clustering
-│   ├── metadata.py                 # PR-metadata JSON extraction + validation (pure)
+│   ├── comments.py                 # Comment + Cluster types, JSONL I/O, clustering, block locator
+│   ├── metadata.py                 # PR-metadata JSON extraction + schema validation
 │   ├── pr_plan.py                  # PRPlan: pure (Cluster, agent_text) → ready-to-submit shape
 │   ├── pi_agent.py                 # PiAgent: pi config + prompt + nono+pi subprocess + event parse
 │   ├── bot.py                      # BotSession: App-bot identity bound to a repo, git+gh helpers
-│   ├── backlog.py                  # TomeBacklog: one-call snapshot of tome-PR state (idempotency + slot count)
+│   ├── backlog.py                  # TomeBacklog: snapshot of currently-open tome-PRs
 │   ├── policy.py                   # post-edit policy check (staged diff vs disallowed paths)
 │   ├── gha.py                      # GitHub Actions glue (outputs, log levels, subprocess)
 │   ├── prepare.py                  # `prepare` subcommand
@@ -78,9 +81,6 @@ process-tome-comments/
 │   ├── pr_open.py                  # `pr-open` subcommand: PRPlan + policy + BotSession
 │   └── consolidate.py              # `consolidate` subcommand: BotSession + JSONL update
 └── wrapper.example.yml             # per-repo workflow file (copy verbatim, ~25 lines)
-
-tome-comments-setup/action.yml      # composite action: mint App token + dual checkout
-.github/workflows/process-tome-comments.yml  # the reusable workflow
 ```
 
 ## Out of scope (v1)

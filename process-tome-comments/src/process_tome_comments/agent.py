@@ -11,14 +11,6 @@ from .gha import error, gha_output
 from .pi_agent import DEFAULT_MODEL, AgentError, PiAgent, PiInvocation
 
 
-# Sparse-checkout location of the actions repo inside the consumer's checkout.
-# Set by the workflow's checkout step (path: .actions).
-ACTIONS_PATH = Path(".actions/process-tome-comments")
-
-PRELUDE_PATH = ACTIONS_PATH / "prompt" / "prelude.md"
-PROFILE_PATH = ACTIONS_PATH / "profiles" / "pi.json"
-
-
 def _persist_invocation(invocation: PiInvocation, runner_temp: Path) -> None:
     (runner_temp / "pi-stdout.jsonl").write_text(invocation.stdout, encoding="utf-8")
     (runner_temp / "pi-stderr.log").write_text(invocation.stderr, encoding="utf-8")
@@ -32,13 +24,19 @@ def main() -> int:
         error(f"Cluster JSON not found: {cluster_file}")
         return 1
 
+    # The setup composite exposes both as outputs rooted at github.action_path
+    # — see `process-tome-comments/setup/action.yml`. Required inputs; we
+    # crash loudly rather than fall back to a stale `.actions/` path.
+    prelude_path = Path(os.environ["PRELUDE_PATH"])
+    profile_path = Path(os.environ["PROFILE_PATH"])
+
     model_id = os.environ.get("AUTOFIX_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL
     cluster = Cluster.from_json_file(cluster_file)
 
     agent = PiAgent(
         model_id=model_id,
-        profile_path=PROFILE_PATH,
-        prelude_text=PRELUDE_PATH.read_text(encoding="utf-8"),
+        profile_path=profile_path,
+        prelude_text=prelude_path.read_text(encoding="utf-8"),
     )
 
     try:
