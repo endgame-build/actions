@@ -4,17 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-A collection of **composite GitHub Actions** for the `endgame-build` org. Each action downloads, caches, and adds a CLI tool to `$PATH` in GitHub Actions runners.
+GitHub Actions and reusable workflows for the `endgame-build` org. Two flavors:
 
-Referenced as: `endgame-build/actions/<action-name>@v1`
+1. **Single-purpose composite actions** — one directory at the repo root, named `setup-<tool>/`. Downloads, caches, and adds a CLI tool to `$PATH`. Referenced as `endgame-build/actions/setup-<tool>@v1`. Example: `setup-jira/`.
 
-## Repository Structure
+2. **Multi-component features** — a top-level feature directory holding everything for that feature except the workflow file (which GitHub requires under `.github/workflows/`). Composite preambles nest under `<feature>/setup/action.yml` and are referenced as `endgame-build/actions/<feature>/setup@v1`. Example: `process-tome-comments/` + `.github/workflows/process-tome-comments.yml`.
 
-Each action lives in its own directory with an `action.yml` (composite action format). Currently:
-
-- `setup-jira/` — downloads `jira-cli` from private `endgame-build/jira-cli` releases
-
-## Conventions
+## Conventions for `setup-<tool>` actions
 
 - **Composite actions only** — `runs.using: 'composite'`, no JavaScript/Docker actions.
 - **Caching pattern**: resolve version → detect OS/arch → check `actions/cache@v4` → download on miss → add to `$GITHUB_PATH`.
@@ -24,10 +20,11 @@ Each action lives in its own directory with an `action.yml` (composite action fo
 - **Cache key format**: `<tool>-<os>-<arch>-<tag>`.
 - **Supported platforms**: Linux and macOS, amd64 and arm64.
 
-## Adding a New Action
+## Adding new automation
 
-Create `setup-<tool>/action.yml` following the same pattern as `setup-jira/action.yml`. Update `README.md` with usage and inputs table.
+- Simple CLI-tool installer: create `setup-<tool>/action.yml` following `setup-jira/`. Update `README.md`.
+- Multi-component feature: see `process-tome-comments/README.md` for the layout reference.
 
-## No Build/Test/Lint
+## No build/test/lint
 
-There is no build step, test suite, or linter configured. Actions are YAML-only.
+YAML and (per-feature) Python only. No build step, test suite, or linter configured at the repo level. Multi-component features may declare Python deps in `<feature>/requirements.txt`, installed at runtime by the workflow.
