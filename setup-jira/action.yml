@@ -42,7 +42,7 @@ runs:
 
     - name: Cache jira-cli binary
       id: cache
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{ runner.temp }}/jira-cli
         key: jira-cli-${{ steps.detect.outputs.os }}-${{ steps.detect.outputs.arch }}-${{ steps.resolve.outputs.tag }}

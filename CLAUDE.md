@@ -17,7 +17,7 @@ Each action lives in its own directory with an `action.yml` (composite action fo
 ## Conventions
 
 - **Composite actions only** — `runs.using: 'composite'`, no JavaScript/Docker actions.
-- **Caching pattern**: resolve version → detect OS/arch → check `actions/cache@v4` → download on miss → add to `$GITHUB_PATH`.
+- **Caching pattern**: resolve version → detect OS/arch → check `actions/cache@v5` → download on miss → add to `$GITHUB_PATH`.
 - **Asset naming**: `<tool>_<tag>_<os>_<arch>.tar.gz` (e.g., `jira_v1.2.3_linux_amd64.tar.gz`).
 - **Version input**: accepts `"latest"` (default) or a semver string without `v` prefix. The action normalizes to `v`-prefixed tag internally.
 - **Token input**: GitHub PAT with `repo` read access to the private release repo. Passed via `GITHUB_TOKEN` env var for `gh` commands.

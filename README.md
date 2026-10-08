@@ -9,7 +9,7 @@ Composite GitHub Actions for downloading, caching, and adding CLI tools to `$PAT
 Download, cache, and add `jira-cli` to PATH.
 
 ```yaml
-- uses: actions/create-github-app-token@v1
+- uses: actions/create-github-app-token@v3
   id: app-token
   with:
     app-id: ${{ secrets.JIRA_CLI_APP_ID }}

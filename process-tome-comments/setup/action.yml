@@ -34,7 +34,7 @@ runs:
   steps:
     - name: Mint App token
       id: app-token
-      uses: actions/create-github-app-token@v1
+      uses: actions/create-github-app-token@v3
       with:
         app-id: ${{ inputs.app-id }}
         private-key: ${{ inputs.app-private-key }}
@@ -58,12 +58,12 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - name: Checkout consumer repo (App token)
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         token: ${{ steps.app-token.outputs.token }}
-        # Pin to the workflow's commit SHA. Without it, checkout@v4 invoked
+        # Pin to the workflow's commit SHA. Without it, checkout@v5 invoked
         # inside a composite picks up GITHUB_ACTION_REF (the inner checkout
-        # action's own ref, `v4`) and tries to fetch a `v4*` branch from
+        # action's own ref, `v5`) and tries to fetch a `v5*` branch from
         # the consumer repo.
         ref: ${{ github.sha }}
         fetch-depth: 1

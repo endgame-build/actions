@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload cluster artifact
         if: steps.prep.outputs.has_clusters == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tome-clusters-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/clusters/
@@ -128,13 +128,13 @@ jobs:
           app-private-key: ${{ secrets.TOME_COMMENTS_APP_PRIVATE_KEY }}
 
       - name: Download cluster artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: tome-clusters-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/clusters/
 
       - name: Setup Node.js (for pi-coding-agent)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
